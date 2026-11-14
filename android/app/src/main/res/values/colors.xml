@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches the app's own background, so opening the app does not flash another colour. -->
+    <color name="launch_bg">#F6F7F9</color>
+    <color name="icon_bg">#B3122A</color>
+</resources>
