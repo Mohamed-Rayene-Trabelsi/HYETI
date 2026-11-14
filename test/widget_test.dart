@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:personal_mobile_app/date.dart';
 import 'package:personal_mobile_app/db.dart';
 import 'package:personal_mobile_app/main.dart';
+import 'package:personal_mobile_app/sketch.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Database calls finish on a real event loop, so let them land and then draw.
@@ -212,6 +213,35 @@ void main() {
 
     expect(find.text('1 note'), findsOneWidget);
     expect(find.text('Groceries'), findsOneWidget);
+  });
+
+  testWidgets('a sketch is drawn, saved as a note, and reopens with undo and clear', (tester) async {
+    await start(tester);
+    await openTab(tester, 'Notes');
+    await tester.tap(find.byIcon(Icons.brush_outlined).hitTestable());
+    await settle(tester);
+    await tester.enterText(field(0), 'Floor plan');
+    final canvas = find.byKey(const Key('sketch-canvas'));
+    await tester.drag(canvas, const Offset(80, 60));
+    await tester.drag(canvas, const Offset(-60, 90));
+    await tester.pump();
+    await tester.tap(find.byIcon(Icons.undo));
+    await tester.pump();
+    await tapText(tester, '‹ Done');
+
+    expect(find.text('1 note'), findsOneWidget);
+    expect(find.text('Floor plan'), findsOneWidget);
+    var row = (await tester.runAsync(() => appDb.query('SELECT * FROM notes')))!.single;
+    expect(decodeSketch(row['sketch'] as String?), hasLength(1));
+
+    // Clearing the drawing but keeping the title keeps the note; it is still a sketch.
+    await tapText(tester, 'Floor plan');
+    await tester.tap(find.byIcon(Icons.delete_sweep_outlined));
+    await tester.pump();
+    await tapText(tester, '‹ Done');
+    row = (await tester.runAsync(() => appDb.query('SELECT * FROM notes')))!.single;
+    expect(decodeSketch(row['sketch'] as String?), isEmpty);
+    expect(row['sketch'], isNotNull);
   });
 
   testWidgets('a colour theme chosen in settings recolours the app and is remembered', (tester) async {

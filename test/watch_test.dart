@@ -155,7 +155,8 @@ void main() {
     ]) {
       await db.raw.insert('watch_items', {'kind': kind, 'title': title, 'ext_id': extId, 'event_id': eventId});
     }
-    // Put the file back to how the previous version of the app left it.
+    // Put the file back to how that version of the app left it: no later columns, and its version number.
+    await db.raw.execute('ALTER TABLE notes DROP COLUMN sketch');
     await db.raw.execute('PRAGMA user_version = 3');
     await db.raw.close();
 

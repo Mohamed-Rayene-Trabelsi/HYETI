@@ -7,7 +7,7 @@ import 'package:sqflite/sqflite.dart';
 /// One row as returned by SQLite.
 typedef Rec = Map<String, Object?>;
 
-const _databaseVersion = 4;
+const _databaseVersion = 5;
 
 const _tables = [
   'events', 'routines', 'day_offs', 'notes', 'watch_items', //
@@ -223,6 +223,11 @@ Future<void> _migrate(Database db, int from) async {
       }
       await db.execute('DELETE FROM watch_items WHERE id = ?', [row['id']]);
     }
+  }
+
+  if (from < 5) {
+    // A note that is a drawing keeps its strokes here as JSON; null for a written note.
+    await db.execute('ALTER TABLE notes ADD COLUMN sketch TEXT');
   }
 }
 

@@ -11,6 +11,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:personal_mobile_app/date.dart';
 import 'package:personal_mobile_app/db.dart';
 import 'package:personal_mobile_app/main.dart';
+import 'package:personal_mobile_app/sketch.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Real fonts from the Flutter SDK, so text is readable in the pictures.
@@ -60,6 +61,25 @@ Future<void> seed() async {
       [title, category, days, start, end, addDays(today, -10)],
     );
   }
+  final now = DateTime.now().millisecondsSinceEpoch;
+  await appDb.run("INSERT INTO notes (title, body, updated_at) VALUES ('Groceries', 'Eggs, rice, chicken', ?)", [now]);
+  // A little house: walls, roof, door, and a sun.
+  await appDb.run('INSERT INTO notes (title, sketch, pinned, updated_at) VALUES (?, ?, 1, ?)', [
+    'House idea',
+    encodeSketch(const [
+      Stroke(0, 0.014, [Offset(0.25, 0.6), Offset(0.25, 1.0), Offset(0.75, 1.0), Offset(0.75, 0.6), Offset(0.25, 0.6)]),
+      Stroke(0xFFEF5350, 0.014, [Offset(0.18, 0.62), Offset(0.5, 0.35), Offset(0.82, 0.62)]),
+      Stroke(0xFF4F8CFF, 0.014, [Offset(0.45, 1.0), Offset(0.45, 0.8), Offset(0.57, 0.8), Offset(0.57, 1.0)]),
+      Stroke(0xFFFFA726, 0.03, [
+        Offset(0.8, 0.2),
+        Offset(0.84, 0.16),
+        Offset(0.88, 0.2),
+        Offset(0.84, 0.24),
+        Offset(0.8, 0.2),
+      ]),
+    ]),
+    now,
+  ]);
   for (final (exercise, muscle, weight, date) in [
     ('Bench press', 'Chest', 60.0, addDays(today, -6)),
     ('Bench press', 'Chest', 62.5, today),
@@ -113,6 +133,14 @@ void main() {
     await tester.tap(find.text('Month'));
     await settle(tester);
     await snap(tester, 'calendar_month');
+
+    await openTab(tester, 'Notes');
+    await snap(tester, 'notes');
+    await tester.tap(find.text('House idea'));
+    await settle(tester);
+    await snap(tester, 'notes_sketch');
+    await tester.tap(find.text('‹ Done'));
+    await settle(tester);
 
     await openTab(tester, 'Body');
     await snap(tester, 'body_front');

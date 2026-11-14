@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../date.dart';
 import '../db.dart';
+import '../sketch.dart';
 import '../theme.dart';
 import '../ui.dart';
 
@@ -31,8 +32,15 @@ class _NotesScreenState extends State<NotesScreen> with Live {
     super.dispose();
   }
 
-  void _open(Rec? note) {
-    Navigator.of(context).push(MaterialPageRoute<void>(fullscreenDialog: true, builder: (_) => NoteEditor(note: note)));
+  /// Opens a note in the editor for its kind; with no note, starts a new written one or a new [sketch].
+  void _open(Rec? note, {bool sketch = false}) {
+    final drawing = sketch || note?['sketch'] != null;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        fullscreenDialog: true,
+        builder: (_) => drawing ? SketchEditor(note: note) : NoteEditor(note: note),
+      ),
+    );
   }
 
   @override
@@ -44,6 +52,7 @@ class _NotesScreenState extends State<NotesScreen> with Live {
     return Screen(
       title: 'Notes',
       subtitle: '${_notes.length} ${_notes.length == 1 ? 'note' : 'notes'}',
+      actions: [HeaderIcon(Icons.brush_outlined, label: 'New sketch', onPressed: () => _open(null, sketch: true))],
       fabLabel: 'New note',
       fabIcon: Icons.edit_outlined,
       onFab: () => _open(null),
@@ -60,7 +69,7 @@ class _NotesScreenState extends State<NotesScreen> with Live {
           Empty(
             icon: searching ? Icons.search_off : Icons.sticky_note_2_outlined,
             title: searching ? 'No matches' : 'No notes yet',
-            hint: searching ? 'Try a different word.' : 'Tap “New note” to write your first one.',
+            hint: searching ? 'Try a different word.' : 'Tap “New note” to write one, or the brush to draw one.',
           ),
         if (pinned.isNotEmpty)
           Section(
@@ -89,6 +98,43 @@ class _NoteCard extends StatelessWidget {
     final body = note['body'] as String;
     final firstLine = body.split('\n').first;
     final updated = DateTime.fromMillisecondsSinceEpoch(note['updated_at'] as int);
+    final sketch = note['sketch'] as String?;
+    if (sketch != null) {
+      final c = context.colors;
+      // A drawing shows as a small picture beside its title.
+      return AppCard(
+        onTap: onTap,
+        padding: const EdgeInsets.all(Spacing.md),
+        children: [
+          Row(
+            spacing: Spacing.md,
+            children: [
+              Container(
+                width: 66,
+                height: 66 / sketchAspect,
+                decoration: BoxDecoration(
+                  color: c.surfaceAlt,
+                  borderRadius: BorderRadius.circular(Radii.sm),
+                  border: Border.all(color: c.border, width: 0.5),
+                ),
+                child: CustomPaint(painter: SketchPainter(decodeSketch(sketch), ink: c.text)),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  spacing: Spacing.xs,
+                  children: [
+                    T(title.isNotEmpty ? title : 'Sketch', variant: TextVariant.heading, maxLines: 2),
+                    T('Sketch · ${relativeDay(toKey(updated))}', variant: TextVariant.small, dim: true),
+                  ],
+                ),
+              ),
+              if (note['pinned'] == 1) Icon(Icons.push_pin, size: 16, color: c.accent),
+            ],
+          ),
+        ],
+      );
+    }
     return AppCard(
       onTap: onTap,
       spacing: Spacing.xs,

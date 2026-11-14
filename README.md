@@ -1,23 +1,24 @@
 # HYETI
 
-A personal planner for Android. Calendar, gym and food log, wallet, watchlist and notes in one app, with everything saved on the phone. No account, no sync, no ads.
+A personal planner for Android. Calendar, gym and food log, wallet, watchlist and notes in one app, with everything saved on the phone. The time and date stay in a bar at the top of every tab. No account, no sync, no ads.
 
 **[Download the APK](https://github.com/Mohamed-Rayene-Trabelsi/HYETI/releases/latest/download/HYETI.apk)** · [All releases](https://github.com/Mohamed-Rayene-Trabelsi/HYETI/releases)
 
 <p>
-  <img src="test/preview/calendar_day.png" width="24%" alt="Calendar, day view">
-  <img src="test/preview/calendar_week.png" width="24%" alt="Calendar, week view">
-  <img src="test/preview/body_front.png" width="24%" alt="Body tab with the muscle map">
-  <img src="test/preview/theme_dark_knight.png" width="24%" alt="Settings with the colour themes">
+  <img src="test/preview/calendar_day.png" width="19%" alt="Calendar, day view">
+  <img src="test/preview/calendar_week.png" width="19%" alt="Calendar, week view">
+  <img src="test/preview/body_front.png" width="19%" alt="Body tab with the muscle map">
+  <img src="test/preview/notes_sketch.png" width="19%" alt="A sketch note being drawn">
+  <img src="test/preview/theme_dark_knight.png" width="19%" alt="Settings with the colour themes">
 </p>
 
 ## What's in it
 
-- **Calendar.** Set up a weekly routine once and it fills in every day. Day, week and month views. If you're running late you can push the rest of the day back, and you can mark days off.
+- **Calendar.** Set up a weekly routine once and it fills in every day. Day, week and month views. Blocks are added from one sheet: pick one of sixteen activities, a start time and a one-tap length. If you're running late you can push the rest of the day back, and you can mark days off.
 - **Body.** A muscle map that shows what you trained and what has rested long enough, with exercise suggestions and set logging. There is a countdown for your gym membership, and a nutrition side with a calorie and macro plan and a food log.
 - **Wallet.** Income, spending and savings, a weekly budget and a savings goal.
 - **Watch.** A watchlist for movies, series and anime, with what's popular and what's coming out. A watch night can go straight onto the calendar.
-- **Notes.** Plain notes you can search and pin.
+- **Notes.** Written notes and finger-drawn sketches, which you can search and pin. Sketches have six pen colours, three pen sizes, an eraser, and undo and redo.
 - **Settings.** Light or dark, eight colour themes (one of them yours to mix), week start, units, currency, and a button that erases everything.
 
 ## Install
@@ -70,7 +71,7 @@ One catch: the APK is signed with the debug key of the computer that built it. A
 | --- | --- |
 | `lib/main.dart` | App start and the five-tab shell |
 | `lib/screens/` | One file per tab, plus settings |
-| `lib/` (the rest) | Shared pieces: database, theme, widgets, date helpers, the muscle map, the Watch tab's API calls |
+| `lib/` (the rest) | Shared pieces: database, theme, widgets, date helpers, the muscle map, the sketch canvas, the Watch tab's API calls |
 | `test/` | Unit and widget tests. `test/preview/` has screenshots drawn by `render_preview_test.dart` |
 | `android/` | The Android project Flutter builds |
 
