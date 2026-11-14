@@ -1,52 +1,47 @@
 # HYETI
 
-A personal planner for Android, built with Flutter. Everything is stored on the phone.
+A personal planner for Android. Calendar, gym and food log, wallet, watchlist and notes in one app, with everything saved on the phone. No account, no sync, no ads.
 
-| Tab | What it does |
-| --- | --- |
-| Calendar | Weekly routine blocks copied into each day; day, week and month views; running-late shifts and days off |
-| Body | Gym: muscle map, exercise suggestions, set logging, membership countdown. Nutrition: calorie and macro plan, food log |
-| Wallet | Income, spending and savings, weekly budget, savings goal |
-| Watch | Watchlist with hot and upcoming movies, series and anime; adds watch nights to the calendar |
-| Notes | Searchable notes with pinning |
-| Settings | Theme, week start, units, currency, API keys, erase all data |
+**[Download the APK](https://github.com/Mohamed-Rayene-Trabelsi/HYETI/releases/latest/download/HYETI.apk)** · [All releases](https://github.com/Mohamed-Rayene-Trabelsi/HYETI/releases)
 
-## Install it on a phone
+<p>
+  <img src="test/preview/calendar_day.png" width="24%" alt="Calendar, day view">
+  <img src="test/preview/calendar_week.png" width="24%" alt="Calendar, week view">
+  <img src="test/preview/body_front.png" width="24%" alt="Body tab with the muscle map">
+  <img src="test/preview/theme_dark_knight.png" width="24%" alt="Settings with the colour themes">
+</p>
 
-The latest build is kept in this repository at [`release/HYETI.apk`](release/HYETI.apk).
+## What's in it
 
-1. On the phone, sign in to GitHub in the browser (the repository is private) and open
-   <https://github.com/Mohamed-Rayene-Trabelsi/HYETI/raw/main/release/HYETI.apk>.
-2. Open the downloaded file and allow the browser to install apps when Android asks.
+- **Calendar.** Set up a weekly routine once and it fills in every day. Day, week and month views. If you're running late you can push the rest of the day back, and you can mark days off.
+- **Body.** A muscle map that shows what you trained and what has rested long enough, with exercise suggestions and set logging. There is a countdown for your gym membership, and a nutrition side with a calorie and macro plan and a food log.
+- **Wallet.** Income, spending and savings, a weekly budget and a savings goal.
+- **Watch.** A watchlist for movies, series and anime, with what's popular and what's coming out. A watch night can go straight onto the calendar.
+- **Notes.** Plain notes you can search and pin.
+- **Settings.** Light or dark, eight colour themes (one of them yours to mix), week start, units, currency, and a button that erases everything.
 
-Installing a newer build over an older one keeps your data. The file is for 64-bit ARM phones, which covers nearly every Android phone sold since 2017.
+## Install
 
-## Run it
+1. On your phone, tap the download link above.
+2. Open the file. Android will ask whether your browser may install apps; allow it.
 
-1. Plug in an Android phone with USB debugging on (or start an emulator).
-2. In VS Code, open this folder and press `F5`, or run:
+Updating is the same: install the new APK over the old one and your data stays.
 
-   ```bash
-   flutter run
-   ```
+The APK is built for 64-bit ARM, which is almost every Android phone from 2017 onwards.
 
-## Build an APK
+### Movies and series need a key
 
-Raise `version` in `pubspec.yaml` first (for example `1.0.1+2`), then build and copy the result into `release/`:
+Anime works out of the box. For movies and series, get a free [TMDB](https://www.themoviedb.org/settings/api) key, and for IMDb ratings a free [OMDb](https://www.omdbapi.com/apikey.aspx) key, then paste them in under Settings. The keys stay on your phone.
+
+## Build it yourself
+
+You need [Flutter](https://docs.flutter.dev/get-started/install) and an Android phone with USB debugging on, or an emulator.
 
 ```bash
-flutter build apk --release --target-platform android-arm64
+flutter run
 ```
 
-```bash
-cp build/app/outputs/flutter-apk/app-release.apk release/HYETI.apk
-```
-
-Commit and push `release/HYETI.apk` to publish it.
-
-The APK is signed with the debug key of the computer that built it. A build from a different computer has a different signature, and Android will refuse to install it over the old app until the old app is uninstalled, which erases its data. Keep building on the same computer, or set up a release key before switching.
-
-## Check the code
+Before sending changes, run the checks:
 
 ```bash
 flutter analyze
@@ -56,17 +51,31 @@ flutter analyze
 flutter test
 ```
 
-## Watch tab keys
+### Making a release
 
-Anime needs no key. Movies and series need a free TMDB key, and IMDb ratings a free OMDb key; paste both in under Settings.
+1. Raise `version` in `pubspec.yaml`, both parts (`1.0.1+2` becomes `1.0.2+3`). Android won't install a build over an older one unless the number after the `+` went up.
+2. Build:
 
-## Folders
+   ```bash
+   flutter build apk --release --target-platform android-arm64
+   ```
 
-| Path | What is in it |
+3. Rename `build/app/outputs/flutter-apk/app-release.apk` to `HYETI.apk` and attach it to a new [release](https://github.com/Mohamed-Rayene-Trabelsi/HYETI/releases/new) tagged with the version, for example `v1.0.2`. The download link at the top always points at the newest release, so the file name has to stay `HYETI.apk`.
+
+One catch: the APK is signed with the debug key of the computer that built it. A build from another computer has a different signature, and Android refuses to install it over the existing app until that app is uninstalled, which wipes its data. Build releases on one computer, or set up a proper release key first.
+
+## Where things are
+
+| Path | What's there |
 | --- | --- |
-| `lib/` | The app. `main.dart` starts it; `screens/` has one file per tab; the other files are shared pieces (database, theme, widgets, dates) |
-| `test/` | Unit and widget tests; `test/preview/` holds pictures of the screens drawn by `render_preview_test.dart` |
+| `lib/main.dart` | App start and the five-tab shell |
+| `lib/screens/` | One file per tab, plus settings |
+| `lib/` (the rest) | Shared pieces: database, theme, widgets, date helpers, the muscle map, the Watch tab's API calls |
+| `test/` | Unit and widget tests. `test/preview/` has screenshots drawn by `render_preview_test.dart` |
 | `android/` | The Android project Flutter builds |
-| `release/` | The installable APK |
 
-`AGENTS.md` has the working rules for the code.
+Data lives in SQLite on the phone. The only network calls are the Watch tab's lookups to AniList, TMDB and OMDb.
+
+## Licence
+
+[MIT](LICENSE)

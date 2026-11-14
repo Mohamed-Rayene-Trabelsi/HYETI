@@ -15,7 +15,7 @@ flutter run                 # run on a connected phone or emulator
 flutter build apk --release --target-platform android-arm64 # installable APK in build/app/outputs/flutter-apk/
 ```
 
-To publish a build, raise `version` in `pubspec.yaml`, build, and copy `app-release.apk` to `release/HYETI.apk`; the README links to that file. It is signed with this computer's debug key, so only builds from this computer install over the app already on the phone.
+To publish a build, raise `version` in `pubspec.yaml`, build, and attach `app-release.apk`, renamed `HYETI.apk`, to a new GitHub release tagged `v<version>`; the README's download link points at the latest release's `HYETI.apk`. Do not commit APKs to the repository (`release/` is ignored and is only a local staging folder). The APK is signed with the debug key of the computer that built it, so only builds from that computer install over the app already on the phone.
 
 Run `flutter analyze` and `flutter test` before declaring any task done.
 
@@ -27,7 +27,7 @@ flutter test test/render_preview_test.dart --update-goldens
 
 Do this after any layout or drawing change (the body figure in particular); add a `snap(...)` line for a new screen.
 
-The toolchain lives in `C:\Users\TNT\develop` (`flutter`, `jdk-17`, `android-sdk`) and is on the user PATH.
+The toolchain (`flutter`, JDK 17, the Android SDK) is on the user PATH; where it is installed differs per computer.
 
 ## Layout
 
