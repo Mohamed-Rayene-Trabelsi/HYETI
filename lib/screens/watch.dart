@@ -106,15 +106,21 @@ class _WatchScreenState extends State<WatchScreen> with Live {
     });
   }
 
-  Future<void> _remove(Rec item) async {
-    final row = {...item}..remove('live_event_id');
+  /// Removes a title: every saved entry behind its card, with their calendar blocks.
+  Future<void> _remove(List<Rec> copies) async {
     await appDb.transaction((txn) async {
-      if (item['live_event_id'] != null) {
-        await txn.execute('DELETE FROM events WHERE id = ?', [item['live_event_id']]);
+      for (final item in copies) {
+        if (item['live_event_id'] != null) {
+          await txn.execute('DELETE FROM events WHERE id = ?', [item['live_event_id']]);
+        }
+        await txn.execute('DELETE FROM watch_items WHERE id = ?', [item['id']]);
       }
-      await txn.execute('DELETE FROM watch_items WHERE id = ?', [item['id']]);
     });
-    showUndo('Removed ${item['title']}', () => appDb.restore('watch_items', row));
+    showUndo('Removed ${copies.first['title']}', () async {
+      for (final item in copies) {
+        await appDb.restore('watch_items', {...item}..remove('live_event_id'));
+      }
+    });
   }
 
   Future<void> _saveFound(Found f) async {
@@ -151,6 +157,22 @@ class _WatchScreenState extends State<WatchScreen> with Live {
   bool _sameTitle(Rec item, String kind, String title) =>
       watchTitleKey(item['kind'] as String, item['title'] as String) == watchTitleKey(kind, title);
 
+  /// The list entry saved from this exact online entry, if there is one.
+  Rec? _savedAs(Found f) => _items.where((i) => i['ext_id'] == f.extId).firstOrNull;
+
+  /// Tapping "Saved" takes the title back off the list.
+  Future<void> _unsaveFound(Found f) async {
+    final item = _savedAs(f);
+    if (item != null) await _remove([item]);
+  }
+
+  /// What a saved entry is called on "My list". Entries that share it are drawn as one card, so a show
+  /// saved from both Series and Anime sits in one section instead of two. Nothing is merged in storage.
+  static String _listKey(Rec item) =>
+      watchTitleKey(item['kind'] == 'movie' ? 'movie' : 'show', item['title'] as String);
+
+  static bool _isUpcoming(Rec item, String today) => ((item['release_date'] as String?) ?? '').compareTo(today) >= 0;
+
   void _openKeys() {
     showSheet(
       context,
@@ -185,12 +207,22 @@ class _WatchScreenState extends State<WatchScreen> with Live {
     final omdbKey = appDb.setting('omdb_key', '');
     final mine = _tab == 'mine';
     final today = todayKey();
-    final upcoming = _items.where((i) => ((i['release_date'] as String?) ?? '').compareTo(today) >= 0).toList();
-    final rest = _items.where((i) => !upcoming.contains(i)).toList();
+    // One card per title. A title with any entry still ahead goes under "Coming up", led by that entry;
+    // otherwise it goes under "Out now or undated". It is never in both.
+    final byTitle = <String, List<Rec>>{};
+    for (final item in _items) {
+      (byTitle[_listKey(item)] ??= []).add(item);
+    }
+    final titles = [
+      for (final copies in byTitle.values)
+        [...copies.where((i) => _isUpcoming(i, today)), ...copies.where((i) => !_isUpcoming(i, today))],
+    ];
+    final upcoming = titles.where((t) => _isUpcoming(t.first, today)).toList();
+    final rest = titles.where((t) => !_isUpcoming(t.first, today)).toList();
 
     return Screen(
       title: 'Watchlist',
-      subtitle: _items.isEmpty ? 'Movies, series and anime' : '${_items.length} saved · ${upcoming.length} coming up',
+      subtitle: titles.isEmpty ? 'Movies, series and anime' : '${titles.length} saved · ${upcoming.length} coming up',
       actions: [HeaderIcon(Icons.key_outlined, label: 'Movie and series keys', onPressed: _openKeys)],
       fabLabel: mine ? 'Add title' : null,
       onFab: _openAdd,
@@ -208,11 +240,11 @@ class _WatchScreenState extends State<WatchScreen> with Live {
               hint: 'Open Movies, Series or Anime to see what is hot and save what you want to watch.',
             ),
           if (upcoming.isNotEmpty)
-            Section(title: 'Coming up', children: [for (final item in upcoming) _itemCard(item)]),
+            Section(title: 'Coming up', children: [for (final copies in upcoming) _itemCard(copies)]),
           if (rest.isNotEmpty)
             Section(
               title: upcoming.isEmpty ? 'Saved' : 'Out now or undated',
-              children: [for (final item in rest) _itemCard(item)],
+              children: [for (final copies in rest) _itemCard(copies)],
             ),
         ] else if (_tab != 'anime' && tmdbKey.isEmpty)
           Empty(
@@ -236,8 +268,9 @@ class _WatchScreenState extends State<WatchScreen> with Live {
             kind: _tab,
             tmdbKey: tmdbKey,
             omdbKey: omdbKey,
-            savedIds: {for (final i in _items) i['ext_id'] as String?},
+            isSaved: (f) => _savedAs(f) != null,
             onSave: _saveFound,
+            onUnsave: _unsaveFound,
             onFixKeys: _openKeys,
           ),
         ],
@@ -245,7 +278,9 @@ class _WatchScreenState extends State<WatchScreen> with Live {
     );
   }
 
-  Widget _itemCard(Rec item) {
+  /// One title on the list. [copies] are the saved entries behind it, the one to show first.
+  Widget _itemCard(List<Rec> copies) {
+    final item = copies.first;
     final c = context.colors;
     final release = item['release_date'] as String?;
     final detail = item['detail'] as String;
@@ -289,7 +324,7 @@ class _WatchScreenState extends State<WatchScreen> with Live {
         Row(
           spacing: Spacing.sm,
           children: [
-            if (item['live_event_id'] != null)
+            if (copies.any((i) => i['live_event_id'] != null))
               AppChip('On calendar', icon: Icons.check, selected: true, color: c.success)
             else
               // Flexible, so with a large font size the label shortens instead of pushing Remove off the card.
@@ -303,7 +338,7 @@ class _WatchScreenState extends State<WatchScreen> with Live {
                 ),
               ),
             const Spacer(),
-            AppButton('Remove', kind: ButtonKind.plain, small: true, onPressed: () => _remove(item)),
+            AppButton('Remove', kind: ButtonKind.plain, small: true, onPressed: () => _remove(copies)),
           ],
         ),
       ],
@@ -352,16 +387,20 @@ class _Browser extends StatefulWidget {
     required this.kind,
     required this.tmdbKey,
     required this.omdbKey,
-    required this.savedIds,
+    required this.isSaved,
     required this.onSave,
+    required this.onUnsave,
     required this.onFixKeys,
   });
 
   final String kind;
   final String tmdbKey;
   final String omdbKey;
-  final Set<String?> savedIds;
+
+  /// Whether a found title is on the list already.
+  final bool Function(Found) isSaved;
   final Future<void> Function(Found) onSave;
+  final Future<void> Function(Found) onUnsave;
   final VoidCallback onFixKeys;
 
   @override
@@ -480,10 +519,12 @@ class _BrowserState extends State<_Browser> {
     _fetch();
   }
 
-  Future<void> _save(Found f) async {
+  /// Saves a title, or with [off] takes a saved one back off the list.
+  Future<void> _save(Found f, {bool off = false}) async {
+    if (_saving.contains(f.extId)) return;
     setState(() => _saving.add(f.extId));
     try {
-      await widget.onSave(f);
+      await (off ? widget.onUnsave(f) : widget.onSave(f));
     } finally {
       if (mounted) setState(() => _saving.remove(f.extId));
     }
@@ -569,8 +610,17 @@ class _BrowserState extends State<_Browser> {
                       ],
                     ),
                   ),
-                  if (widget.savedIds.contains(f.extId))
-                    AppChip('Saved', icon: Icons.check, selected: true, color: c.success)
+                  if (widget.isSaved(f))
+                    Semantics(
+                      label: 'Remove ${f.title} from my list',
+                      child: AppChip(
+                        'Saved',
+                        icon: Icons.check,
+                        selected: true,
+                        color: c.success,
+                        onPressed: () => _save(f, off: true),
+                      ),
+                    )
                   else
                     AppButton(
                       'Save',

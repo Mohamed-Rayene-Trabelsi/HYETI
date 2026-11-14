@@ -173,4 +173,63 @@ void main() {
       {'kind': 'anime', 'title': 'Berserk', 'ext_id': 'anilist:21560', 'event_id': null},
     ]);
   });
+
+  testWidgets('a title saved twice shows once, under Coming up only', (tester) async {
+    await tester.runAsync(() async {
+      for (final (kind, title, extId, date) in [
+        ('series', 'Frieren', 'tmdb:tv:5', '2020-01-05'),
+        ('anime', 'Frieren', 'anilist:5', '2999-01-01'),
+        ('movie', 'Dune', 'tmdb:movie:1', '2021-09-15'),
+      ]) {
+        await appDb.insert(
+          'INSERT INTO watch_items (kind, title, release_date, detail, ext_id) VALUES (?, ?, ?, ?, ?)',
+          [kind, title, date, '', extId],
+        );
+      }
+    });
+    await start(tester);
+
+    expect(find.text('Frieren'), findsOneWidget);
+    expect(find.text('2 saved · 1 coming up'), findsOneWidget);
+    // The one card is the copy still ahead, so it sits above the "Out now" heading.
+    final card = tester.getTopLeft(find.text('Frieren')).dy;
+    expect(card, greaterThan(tester.getTopLeft(find.text('COMING UP')).dy));
+    expect(card, lessThan(tester.getTopLeft(find.text('OUT NOW OR UNDATED')).dy));
+
+    // Nothing was merged in storage, and removing the card clears both copies.
+    expect(await tester.runAsync(() => appDb.query('SELECT * FROM watch_items')), hasLength(3));
+    await tester.tap(find.text('Remove').hitTestable().first);
+    await settle(tester);
+    expect(find.text('Frieren'), findsNothing);
+    expect(await tester.runAsync(() => appDb.query('SELECT * FROM watch_items')), hasLength(1));
+
+    await tapText(tester, 'Undo');
+    expect(find.text('Frieren'), findsOneWidget);
+    expect(await tester.runAsync(() => appDb.query('SELECT * FROM watch_items')), hasLength(3));
+
+    // Let the message's own timer run out.
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('tapping Saved takes the title back off the list', (tester) async {
+    fakeAnilist((_) => anilistPage([anime(7)], more: false));
+    await start(tester);
+    await tester.tap(find.text('Anime').hitTestable().first);
+    await settle(tester);
+
+    await tapText(tester, 'Save');
+    expect(await tester.runAsync(() => appDb.query('SELECT * FROM watch_items')), hasLength(1));
+
+    await tapText(tester, 'Saved');
+    expect(await tester.runAsync(() => appDb.query('SELECT * FROM watch_items')), isEmpty);
+    expect(find.text('Save'), findsOneWidget);
+
+    await tapText(tester, 'Undo');
+    expect(find.text('Saved'), findsOneWidget);
+
+    // Let the message's own timer run out.
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+  });
 }
