@@ -43,6 +43,38 @@ Future<void> openTab(WidgetTester tester, String name) async {
 Future<void> snap(WidgetTester tester, String name) =>
     expectLater(find.byType(MaterialApp), matchesGoldenFile('preview/$name.png'));
 
+/// A dark theme, a week of routine blocks and a few gym sets, so the screens have something to show.
+Future<void> seed() async {
+  final today = todayKey();
+  await appDb.setSetting('theme', 'dark');
+  for (final (title, category, days, start, end) in [
+    ('Deep work', 'work', '0,1,2,3,4,5,6', 540, 660),
+    ('Lunch', 'food', '0,1,2,3,4,5,6', 780, 825),
+    ('Gym', 'gym', '0,1,2,3,4,5,6', 1080, 1170),
+    ('Dinner', 'food', '0,1,2,3,4,5,6', 1200, 1245),
+    ('Gaming', 'game', '0,1,2,3,4,5,6', 1260, 1350),
+  ]) {
+    await appDb.run(
+      'INSERT INTO routines (title, category, days, start_min, end_min, flex_min, created_date) '
+      'VALUES (?, ?, ?, ?, ?, 15, ?)',
+      [title, category, days, start, end, addDays(today, -10)],
+    );
+  }
+  for (final (exercise, muscle, weight, date) in [
+    ('Bench press', 'Chest', 60.0, addDays(today, -6)),
+    ('Bench press', 'Chest', 62.5, today),
+    ('Squat', 'Quads', 80.0, addDays(today, -9)),
+    ('Pull-up', 'Back', 0.0, addDays(today, -1)),
+  ]) {
+    await appDb.run('INSERT INTO workout_sets (date, muscle, exercise, weight, reps) VALUES (?, ?, ?, ?, 8)', [
+      date,
+      muscle,
+      exercise,
+      weight,
+    ]);
+  }
+}
+
 void main() {
   if (!autoUpdateGoldenFiles) return;
 
@@ -60,36 +92,7 @@ void main() {
     tester.view.devicePixelRatio = 2.75;
     addTearDown(tester.view.reset);
 
-    final today = todayKey();
-    await tester.runAsync(() async {
-      await appDb.setSetting('theme', 'dark');
-      for (final (title, category, days, start, end) in [
-        ('Deep work', 'work', '0,1,2,3,4,5,6', 540, 660),
-        ('Lunch', 'food', '0,1,2,3,4,5,6', 780, 825),
-        ('Gym', 'gym', '0,1,2,3,4,5,6', 1080, 1170),
-        ('Dinner', 'food', '0,1,2,3,4,5,6', 1200, 1245),
-        ('Gaming', 'game', '0,1,2,3,4,5,6', 1260, 1350),
-      ]) {
-        await appDb.run(
-          'INSERT INTO routines (title, category, days, start_min, end_min, flex_min, created_date) '
-          'VALUES (?, ?, ?, ?, ?, 15, ?)',
-          [title, category, days, start, end, addDays(today, -10)],
-        );
-      }
-      for (final (exercise, muscle, weight, date) in [
-        ('Bench press', 'Chest', 60.0, addDays(today, -6)),
-        ('Bench press', 'Chest', 62.5, today),
-        ('Squat', 'Quads', 80.0, addDays(today, -9)),
-        ('Pull-up', 'Back', 0.0, addDays(today, -1)),
-      ]) {
-        await appDb.run('INSERT INTO workout_sets (date, muscle, exercise, weight, reps) VALUES (?, ?, ?, ?, 8)', [
-          date,
-          muscle,
-          exercise,
-          weight,
-        ]);
-      }
-    });
+    await tester.runAsync(seed);
 
     await tester.pumpWidget(const LifeApp());
     await settle(tester);

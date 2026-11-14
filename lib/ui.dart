@@ -30,7 +30,11 @@ const _styles = <TextVariant, TextStyle>{
 
 TextStyle textStyle(BuildContext context, TextVariant variant, {bool dim = false, Color? color}) {
   final c = context.colors;
-  return _styles[variant]!.copyWith(color: color ?? (dim ? c.textDim : c.text));
+  final display = variant == TextVariant.title || variant == TextVariant.heading;
+  return _styles[variant]!.copyWith(
+    color: color ?? (dim ? c.textDim : c.text),
+    fontFamily: display ? AppFonts.display : null,
+  );
 }
 
 class T extends StatelessWidget {

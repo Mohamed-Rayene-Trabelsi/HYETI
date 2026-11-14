@@ -12,8 +12,10 @@ flutter pub add <package>   # add a dependency
 flutter analyze             # lint and typecheck
 flutter test                # unit and widget tests
 flutter run                 # run on a connected phone or emulator
-flutter build apk --release # installable APK in build/app/outputs/flutter-apk/
+flutter build apk --release --target-platform android-arm64 # installable APK in build/app/outputs/flutter-apk/
 ```
+
+To publish a build, raise `version` in `pubspec.yaml`, build, and copy `app-release.apk` to `release/HYETI.apk`; the README links to that file. It is signed with this computer's debug key, so only builds from this computer install over the app already on the phone.
 
 Run `flutter analyze` and `flutter test` before declaring any task done.
 
