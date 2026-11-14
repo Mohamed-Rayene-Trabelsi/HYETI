@@ -24,6 +24,7 @@ int weekdayOf(String key) => fromKey(key).weekday - 1;
 String weekStart(String key) => addDays(key, -weekdayOf(key));
 
 const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const weekdaysLong = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const _months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const _monthsLong = [
   'January', 'February', 'March', 'April', 'May', 'June', //

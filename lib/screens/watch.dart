@@ -223,7 +223,11 @@ class _WatchScreenState extends State<WatchScreen> with Live {
     return Screen(
       title: 'Watchlist',
       subtitle: titles.isEmpty ? 'Movies, series and anime' : '${titles.length} saved · ${upcoming.length} coming up',
-      actions: [HeaderIcon(Icons.key_outlined, label: 'Movie and series keys', onPressed: _openKeys)],
+      // Once a key is saved nothing here asks for one again; both stay editable in Settings.
+      actions: [
+        if (tmdbKey.isEmpty && omdbKey.isEmpty)
+          HeaderIcon(Icons.key_outlined, label: 'Movie and series keys', onPressed: _openKeys),
+      ],
       fabLabel: mine ? 'Add title' : null,
       onFab: _openAdd,
       children: [
@@ -249,20 +253,14 @@ class _WatchScreenState extends State<WatchScreen> with Live {
         ] else if (_tab != 'anime' && tmdbKey.isEmpty)
           Empty(
             icon: Icons.key_outlined,
-            title: 'Two free keys needed',
-            hint:
-                'Hot movies and series come from TMDB, and their IMDb ratings from OMDb. Both are free, '
-                'and you paste each key in once.',
-            action: AppButton('Add my keys', onPressed: _openKeys),
+            title: omdbKey.isEmpty ? 'A free key is needed' : 'A TMDB key is needed',
+            hint: omdbKey.isEmpty
+                ? 'Hot movies and series come from TMDB. The key is free and you paste it in once. '
+                      'An OMDb key is optional and adds IMDb ratings.'
+                : 'Your OMDb key is saved, but the lists themselves come from TMDB. Its key is free too.',
+            action: AppButton(omdbKey.isEmpty ? 'Add a key' : 'Add TMDB key', onPressed: _openKeys),
           )
         else ...[
-          if (_tab != 'anime' && omdbKey.isEmpty)
-            AppCard(
-              children: [
-                const T('Showing TMDB scores. Add a free OMDb key to see IMDb ratings instead.', dim: true),
-                AppButton('Add OMDb key', kind: ButtonKind.soft, small: true, onPressed: _openKeys),
-              ],
-            ),
           _Browser(
             key: ValueKey(_tab),
             kind: _tab,

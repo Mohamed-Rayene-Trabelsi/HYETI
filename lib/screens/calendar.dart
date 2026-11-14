@@ -943,6 +943,15 @@ String _daysLabel(String days) {
 
 const _buffers = [0, 10, 15, 30, 45];
 
+/// One-tap lengths: minutes → the short label on the button.
+const _lengths = {15: '15m', 30: '30m', 45: '45m', 60: '1h', 90: '1h30', 120: '2h', 180: '3h'};
+
+const _dayPresets = {
+  'Every day': [0, 1, 2, 3, 4, 5, 6],
+  'Weekdays': [0, 1, 2, 3, 4],
+  'Weekends': [5, 6],
+};
+
 /// Form for a calendar block: a one-off on one day, or a weekly routine.
 class BlockForm extends StatefulWidget {
   const BlockForm({
@@ -1008,24 +1017,72 @@ class _BlockFormState extends State<BlockForm> {
     );
   }
 
+  Widget _label(String text) => T(text, variant: TextVariant.label, dim: true);
+
+  Widget _chips(List<Widget> children) => Wrap(spacing: Spacing.sm, runSpacing: Spacing.sm, children: children);
+
+  /// One activity in the grid: its icon in its colour, picked out when chosen.
+  Widget _activity(BuildContext context, Category cat) {
+    final c = context.colors;
+    final selected = cat.key == _category;
+    return Expanded(
+      child: Semantics(
+        button: true,
+        selected: selected,
+        label: cat.label,
+        excludeSemantics: true,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () {
+            tick();
+            setState(() => _category = cat.key);
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            height: 58,
+            decoration: BoxDecoration(
+              color: selected ? cat.color.withValues(alpha: 0.18) : c.surfaceAlt,
+              borderRadius: BorderRadius.circular(Radii.button),
+              border: Border.all(color: selected ? cat.color : c.border, width: selected ? 1.5 : 0.5),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              spacing: 3,
+              children: [
+                Icon(cat.icon, size: 20, color: cat.color),
+                T(
+                  cat.label,
+                  variant: TextVariant.small,
+                  dim: !selected,
+                  maxLines: 1,
+                  style: TextStyle(fontSize: 12, fontWeight: selected ? FontWeight.w600 : null),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final length = _end - _start;
+    final dayKey = ([..._days]..sort()).join();
     return FormColumn(
       children: [
-        Wrap(
+        _label('Activity'),
+        Column(
           spacing: Spacing.sm,
-          runSpacing: Spacing.sm,
           children: [
-            for (final cat in categories)
-              AppChip(
-                cat.label,
-                color: cat.color,
-                selected: cat.key == _category,
-                onPressed: () => setState(() => _category = cat.key),
+            for (var i = 0; i < categories.length; i += 4)
+              Row(
+                spacing: Spacing.sm,
+                children: [for (final cat in categories.skip(i).take(4)) _activity(context, cat)],
               ),
           ],
         ),
-        Field(label: 'Name', controller: _title, hint: categoryOf(_category).label),
+        Field(label: 'Name (optional)', controller: _title, hint: categoryOf(_category).label),
         TimeRangeField(
           start: _start,
           end: _end,
@@ -1035,39 +1092,101 @@ class _BlockFormState extends State<BlockForm> {
             _error = '';
           }),
         ),
-        if (_end > _start) T('Lasts ${_span(_end - _start)}', variant: TextVariant.small, dim: true),
-        const T('Buffer for delays (traffic, queues)', variant: TextVariant.label, dim: true),
-        Wrap(
-          spacing: Spacing.sm,
-          runSpacing: Spacing.sm,
+        _label(length > 0 ? 'Length · ${_span(length)}' : 'Length'),
+        // Every length in one row; ones that would run past midnight are left out.
+        Row(
+          spacing: 6,
           children: [
-            for (final b in _buffers)
-              AppChip(b == 0 ? 'None' : '$b min', selected: b == _flex, onPressed: () => setState(() => _flex = b)),
+            for (final MapEntry(key: m, value: name) in _lengths.entries)
+              if (_start + m <= 1439)
+                Expanded(
+                  child: _Toggle(
+                    name: name,
+                    selected: m == length,
+                    onTap: () => setState(() {
+                      _end = _start + m;
+                      _error = '';
+                    }),
+                  ),
+                ),
           ],
         ),
-        if (widget.repeat == 'choose')
+        if (widget.repeat == 'choose') ...[
+          _label('Repeat'),
           Segmented<bool>(
             value: _repeats,
             onChanged: (v) => setState(() => _repeats = v),
             options: const {false: 'Just this day', true: 'Every week'},
           ),
-        if (_repeats)
-          Wrap(
-            spacing: Spacing.sm,
-            runSpacing: Spacing.sm,
+        ],
+        if (_repeats) ...[
+          if (widget.repeat != 'choose') _label('Repeats on'),
+          _chips([
+            for (final MapEntry(key: name, value: days) in _dayPresets.entries)
+              AppChip(name, selected: dayKey == days.join(), onPressed: () => setState(() => _days = [...days])),
+          ]),
+          // All seven days in one row, so the week reads left to right.
+          Row(
+            spacing: 6,
             children: [
               for (final (i, name) in weekdays.indexed)
-                AppChip(
-                  name,
-                  selected: _days.contains(i),
-                  onPressed: () => setState(() => _days = _days.contains(i) ? ([..._days]..remove(i)) : [..._days, i]),
+                Expanded(
+                  child: _Toggle(
+                    name: name,
+                    selected: _days.contains(i),
+                    onTap: () => setState(() => _days = _days.contains(i) ? ([..._days]..remove(i)) : [..._days, i]),
+                  ),
                 ),
             ],
           ),
+        ],
+        _label('Buffer if you run late'),
+        _chips([
+          for (final b in _buffers)
+            AppChip(b == 0 ? 'None' : '$b min', selected: b == _flex, onPressed: () => setState(() => _flex = b)),
+        ]),
         if (_error.isNotEmpty) T(_error, color: context.colors.danger),
-        AppButton('Save', onPressed: _save),
+        AppButton(widget.initial == null ? 'Add to calendar' : 'Save changes', icon: Icons.check, onPressed: _save),
         if (widget.onDelete != null) AppButton(widget.deleteLabel, kind: ButtonKind.danger, onPressed: widget.onDelete),
       ],
+    );
+  }
+}
+
+/// One cell in a full-width row of choices: a weekday, or a length.
+class _Toggle extends StatelessWidget {
+  const _Toggle({required this.name, required this.selected, required this.onTap});
+
+  final String name;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: name,
+      excludeSemantics: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          tick();
+          onTap();
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          height: 40,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? c.accent : c.surfaceAlt,
+            borderRadius: BorderRadius.circular(Radii.button),
+            border: Border.all(color: selected ? c.accent : c.border, width: 0.5),
+          ),
+          child: T(name, variant: TextVariant.small, color: selected ? c.onAccent : c.textDim, maxLines: 1),
+        ),
+      ),
     );
   }
 }

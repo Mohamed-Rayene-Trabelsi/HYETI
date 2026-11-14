@@ -31,8 +31,8 @@ The toolchain (`flutter`, JDK 17, the Android SDK) is on the user PATH; where it
 
 ## Layout
 
-- `lib/main.dart` — app start, theme choice, the five-tab shell (a swipeable `PageView`; tabs stay alive off screen).
-- `lib/screens/` — one file per tab: `calendar`, `body` (gym) with `nutrition`, `wallet`, `watch`, `notes`. `settings` is a pushed page, opened from the gear that `Screen` puts in every header.
+- `lib/main.dart` — app start, theme choice, the five-tab shell: a fixed `TopBar` (time, date, settings gear) over a swipeable `PageView`; tabs stay alive off screen.
+- `lib/screens/` — one file per tab: `calendar`, `body` (gym) with `nutrition`, `wallet`, `watch`, `notes`. `settings` is a pushed page, opened from the gear in `TopBar`.
 - `lib/db.dart` — the database: schema and migrations, `appDb`, and the `Live` mixin.
 - `lib/ui.dart` — shared widgets (`Screen`, `AppCard`, `AppButton`, `Field`, `showSheet`, …). Use these rather than raw Material widgets so screens stay consistent.
 - `lib/theme.dart` — colour themes (`palettes`, `customPalette`), the colours in use (`context.colors`), spacing, calendar categories. Never hard-code a colour a theme should control; take it from `context.colors`.

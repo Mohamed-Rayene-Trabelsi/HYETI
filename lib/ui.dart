@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
+import 'date.dart';
 import 'db.dart';
 import 'theme.dart';
 
@@ -98,6 +101,83 @@ class HeaderIcon extends StatelessWidget {
   }
 }
 
+/// The bar fixed above the tabs: the time, today's date, and the way into settings.
+class TopBar extends StatefulWidget {
+  const TopBar({super.key});
+
+  @override
+  State<TopBar> createState() => _TopBarState();
+}
+
+class _TopBarState extends State<TopBar> {
+  late int _minute = nowMinutes();
+  late final Timer _clock;
+
+  @override
+  void initState() {
+    super.initState();
+    // Checked every second, redrawn only when the minute turns.
+    _clock = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (nowMinutes() != _minute) setState(() => _minute = nowMinutes());
+    });
+  }
+
+  @override
+  void dispose() {
+    _clock.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final today = todayKey();
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: c.surface,
+        border: Border(bottom: BorderSide(color: c.border, width: 0.5)),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(Spacing.lg, Spacing.sm, Spacing.lg, Spacing.sm),
+          child: Center(
+            heightFactor: 1,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: maxContentWidth),
+              child: Row(
+                spacing: Spacing.md,
+                children: [
+                  T(formatTime(_minute), variant: TextVariant.number, style: const TextStyle(fontSize: 24)),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        T(weekdaysLong[weekdayOf(today)], variant: TextVariant.label, maxLines: 1),
+                        T(
+                          '${formatDay(today).split(', ')[1]} ${today.substring(0, 4)}',
+                          variant: TextVariant.small,
+                          dim: true,
+                          maxLines: 1,
+                        ),
+                      ],
+                    ),
+                  ),
+                  HeaderIcon(
+                    Icons.settings_outlined,
+                    label: 'Settings',
+                    onPressed: () => Navigator.of(context).pushNamed('/settings'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// One page of the app: a header, scrolling content, and an optional floating main action.
 class Screen extends StatelessWidget {
   const Screen({
@@ -115,7 +195,7 @@ class Screen extends StatelessWidget {
   final String title;
   final String? subtitle;
 
-  /// Extra header buttons, shown before the settings gear.
+  /// Header buttons, to the right of the title.
   final List<Widget> actions;
 
   /// The screen's main action, floating at the bottom right where a thumb reaches it.
@@ -123,7 +203,7 @@ class Screen extends StatelessWidget {
   final IconData fabIcon;
   final VoidCallback? onFab;
 
-  /// Set on pushed pages: shows a back arrow instead of the settings gear.
+  /// Set on pushed pages: shows a back arrow.
   final VoidCallback? onBack;
   final List<Widget> children;
 
@@ -159,12 +239,6 @@ class Screen extends StatelessWidget {
                           ),
                         ),
                         ...actions,
-                        if (onBack == null)
-                          HeaderIcon(
-                            Icons.settings_outlined,
-                            label: 'Settings',
-                            onPressed: () => Navigator.of(context).pushNamed('/settings'),
-                          ),
                       ],
                     ),
                     ...children,

@@ -119,6 +119,41 @@ void main() {
     expect(find.text(formatMonth(todayKey())), findsOneWidget);
   });
 
+  testWidgets('the top bar with the settings gear stays on every tab', (tester) async {
+    await start(tester);
+    for (final tab in ['Body', 'Wallet', 'Watch', 'Notes', 'Calendar']) {
+      await openTab(tester, tab);
+      expect(find.byIcon(Icons.settings_outlined), findsOneWidget, reason: tab);
+      expect(find.text(formatTime(nowMinutes())), findsOneWidget, reason: tab);
+    }
+  });
+
+  testWidgets('a block is added from the sheet with an activity and a one-tap length', (tester) async {
+    await start(tester);
+    await tapText(tester, 'Add');
+    await tapText(tester, 'Study');
+    await tapText(tester, '1h30');
+    await tapText(tester, 'Add to calendar');
+
+    final rows = await tester.runAsync(() => appDb.query('SELECT * FROM events'));
+    expect(rows, hasLength(1));
+    final block = rows!.single;
+    expect(block['category'], 'study');
+    expect(block['title'], 'Study');
+    expect((block['end_min'] as int) - (block['start_min'] as int), 90);
+    expect(block['date'], todayKey());
+  });
+
+  testWidgets('with a TMDB key saved, the watch tab no longer asks for keys', (tester) async {
+    await tester.runAsync(() => appDb.setSetting('tmdb_key', 'abc'));
+    await start(tester);
+    await openTab(tester, 'Watch');
+    expect(find.byIcon(Icons.key_outlined), findsNothing);
+    await tapText(tester, 'Movies');
+    expect(find.text('Add OMDb key'), findsNothing);
+    expect(find.text('A free key is needed'), findsNothing);
+  });
+
   testWidgets('a transaction shows up in the wallet totals and can be edited', (tester) async {
     await start(tester);
     await openTab(tester, 'Wallet');

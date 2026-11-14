@@ -323,19 +323,32 @@ ThemeData buildTheme(Brightness brightness, [Palette? palette]) {
 
 /// Calendar block categories. The colour is the same in every theme.
 class Category {
-  const Category(this.key, this.label, this.color);
+  const Category(this.key, this.label, this.color, this.icon);
   final String key;
   final String label;
   final Color color;
+  final IconData icon;
 }
 
+/// In the order the block form shows them, four to a row. Keys are stored in the database: add, never rename.
+/// 'other' stays last; unknown keys fall back to it.
 const categories = [
-  Category('gym', 'Gym', Color(0xFFFF7A59)),
-  Category('food', 'Food break', Color(0xFF3DBE7F)),
-  Category('work', 'Work', Color(0xFF6C8CFF)),
-  Category('game', 'Gaming', Color(0xFFB57BFF)),
-  Category('watch', 'Watch', Color(0xFFFF6FAE)),
-  Category('other', 'Other', Color(0xFF8C93A0)),
+  Category('work', 'Work', Color(0xFF6C8CFF), Icons.work_outline),
+  Category('study', 'Study', Color(0xFF4FC3F7), Icons.school_outlined),
+  Category('gym', 'Gym', Color(0xFFFF7A59), Icons.fitness_center),
+  Category('food', 'Meal', Color(0xFF3DBE7F), Icons.restaurant),
+  Category('sleep', 'Sleep', Color(0xFF7986CB), Icons.bedtime_outlined),
+  Category('game', 'Gaming', Color(0xFFB57BFF), Icons.sports_esports_outlined),
+  Category('watch', 'Watch', Color(0xFFFF6FAE), Icons.movie_outlined),
+  Category('read', 'Reading', Color(0xFFD4A373), Icons.menu_book_outlined),
+  Category('social', 'Social', Color(0xFFFFB74D), Icons.groups_outlined),
+  Category('family', 'Family', Color(0xFFF48FB1), Icons.family_restroom),
+  Category('chores', 'Chores', Color(0xFF4DB6AC), Icons.cleaning_services_outlined),
+  Category('errand', 'Errands', Color(0xFFE6C84F), Icons.shopping_bag_outlined),
+  Category('travel', 'Travel', Color(0xFF64B5F6), Icons.directions_car_outlined),
+  Category('health', 'Health', Color(0xFFEF6C6C), Icons.favorite_border),
+  Category('hobby', 'Hobby', Color(0xFFAED581), Icons.palette_outlined),
+  Category('other', 'Other', Color(0xFF8C93A0), Icons.more_horiz),
 ];
 
 Category categoryOf(String key) => categories.firstWhere((c) => c.key == key, orElse: () => categories.last);

@@ -135,18 +135,31 @@ class _AppTabsState extends State<AppTabs> with WidgetsBindingObserver {
           if (!didPop) _select(0);
         },
         child: Scaffold(
-          body: PageView(
-            controller: _pages,
-            onPageChanged: (i) {
-              if (_target != null || i == _index) return;
-              FocusManager.instance.primaryFocus?.unfocus();
-              setState(() => _index = i);
-            },
+          body: Column(
             children: [
-              for (final (i, t) in _tabs.indexed)
-                _KeepAlive(
-                  child: PrimaryScrollController(controller: _scrolls[i], child: t.screen),
+              // Stays put while the tabs slide underneath it.
+              const TopBar(),
+              Expanded(
+                // The bar already covers the status bar, so the tabs need no top inset.
+                child: MediaQuery.removePadding(
+                  context: context,
+                  removeTop: true,
+                  child: PageView(
+                    controller: _pages,
+                    onPageChanged: (i) {
+                      if (_target != null || i == _index) return;
+                      FocusManager.instance.primaryFocus?.unfocus();
+                      setState(() => _index = i);
+                    },
+                    children: [
+                      for (final (i, t) in _tabs.indexed)
+                        _KeepAlive(
+                          child: PrimaryScrollController(controller: _scrolls[i], child: t.screen),
+                        ),
+                    ],
+                  ),
                 ),
+              ),
             ],
           ),
           bottomNavigationBar: DecoratedBox(

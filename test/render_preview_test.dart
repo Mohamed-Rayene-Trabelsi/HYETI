@@ -98,6 +98,14 @@ void main() {
     await settle(tester);
     await snap(tester, 'calendar_day');
 
+    await tester.tap(find.text('Add').hitTestable());
+    await settle(tester);
+    await tester.tap(find.text('Every week'));
+    await settle(tester);
+    await snap(tester, 'calendar_add');
+    await tester.tap(find.text('Close'));
+    await settle(tester);
+
     await tester.tap(find.text('Week'));
     await settle(tester);
     await snap(tester, 'calendar_week');
