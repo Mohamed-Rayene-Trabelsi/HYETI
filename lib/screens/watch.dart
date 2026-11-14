@@ -132,18 +132,24 @@ class _WatchScreenState extends State<WatchScreen> with Live {
       date = next?.date;
       note = next?.note ?? 'No new episode announced';
     }
+    final detail = [note, f.rating].where((s) => s.isNotEmpty).join(' · ');
+    // A title typed in by hand earlier becomes this one, rather than sitting beside it as a duplicate.
+    final typed = _items.where((i) => i['ext_id'] == null && _sameTitle(i, f.kind, f.title)).firstOrNull;
+    if (typed != null) {
+      await appDb.run(
+        'UPDATE OR IGNORE watch_items SET title = ?, release_date = ?, detail = ?, ext_id = ?, poster = ? WHERE id = ?',
+        [f.title, date, detail, f.extId, f.poster, typed['id']],
+      );
+      return;
+    }
     await appDb.insert(
       'INSERT OR IGNORE INTO watch_items (kind, title, release_date, detail, ext_id, poster) VALUES (?, ?, ?, ?, ?, ?)',
-      [
-        f.kind,
-        f.title,
-        date,
-        [note, f.rating].where((s) => s.isNotEmpty).join(' · '),
-        f.extId,
-        f.poster,
-      ],
+      [f.kind, f.title, date, detail, f.extId, f.poster],
     );
   }
+
+  bool _sameTitle(Rec item, String kind, String title) =>
+      watchTitleKey(item['kind'] as String, item['title'] as String) == watchTitleKey(kind, title);
 
   void _openKeys() {
     showSheet(
@@ -159,6 +165,7 @@ class _WatchScreenState extends State<WatchScreen> with Live {
       title: 'Add a title',
       builder: (sheet) => _ManualForm(
         onSave: (kind, title, date) async {
+          if (_items.any((i) => _sameTitle(i, kind, title))) return 'That is already on your list.';
           await appDb.insert('INSERT INTO watch_items (kind, title, release_date, detail) VALUES (?, ?, ?, ?)', [
             kind,
             title,
@@ -166,6 +173,7 @@ class _WatchScreenState extends State<WatchScreen> with Live {
             '',
           ]);
           if (sheet.mounted) Navigator.pop(sheet);
+          return null;
         },
       ),
     );
@@ -284,12 +292,15 @@ class _WatchScreenState extends State<WatchScreen> with Live {
             if (item['live_event_id'] != null)
               AppChip('On calendar', icon: Icons.check, selected: true, color: c.success)
             else
-              AppButton(
-                upcoming ? 'Add to calendar' : 'Plan a watch night',
-                icon: Icons.event_available_outlined,
-                kind: ButtonKind.soft,
-                small: true,
-                onPressed: () => _addToCalendar(item),
+              // Flexible, so with a large font size the label shortens instead of pushing Remove off the card.
+              Flexible(
+                child: AppButton(
+                  upcoming ? 'Add to calendar' : 'Plan a watch night',
+                  icon: Icons.event_available_outlined,
+                  kind: ButtonKind.soft,
+                  small: true,
+                  onPressed: () => _addToCalendar(item),
+                ),
               ),
             const Spacer(),
             AppButton('Remove', kind: ButtonKind.plain, small: true, onPressed: () => _remove(item)),
@@ -369,13 +380,29 @@ class _BrowserState extends State<_Browser> {
   bool _badKey = false;
   List<Found> _results = [];
 
+  /// The last page loaded, and whether the source has another after it.
+  int _page = 0;
+  bool _more = false;
+
   /// Titles being saved right now, so the button cannot be pressed twice.
   final _saving = <String>{};
+
+  /// The scroll position of the screen this list sits in: nearing its end loads the next page.
+  ScrollPosition? _scroll;
 
   @override
   void initState() {
     super.initState();
     _fetch();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final scroll = Scrollable.maybeOf(context)?.position;
+    if (scroll == _scroll) return;
+    _scroll?.removeListener(_onScroll);
+    _scroll = scroll?..addListener(_onScroll);
   }
 
   @override
@@ -387,26 +414,50 @@ class _BrowserState extends State<_Browser> {
   @override
   void dispose() {
     _request = -1;
+    _scroll?.removeListener(_onScroll);
     _text.dispose();
     super.dispose();
   }
 
-  Future<void> _fetch() async {
+  void _onScroll() {
+    final scroll = _scroll;
+    if (!mounted || scroll == null || !scroll.hasContentDimensions) return;
+    if (_loading || !_more || _error.isNotEmpty) return;
+    // About two screens of cards before the end, so the next page is usually there on arrival.
+    if (scroll.extentAfter < 1200) _fetch(next: true);
+  }
+
+  /// Loads the first page, or with [next] the page after the last one and adds it to the list.
+  Future<void> _fetch({bool next = false}) async {
     final request = ++_request;
+    final page = next ? _page + 1 : 1;
     setState(() {
       _loading = true;
       _error = '';
-      _results = [];
+      if (!next) _results = [];
     });
     try {
       final found = widget.kind == 'anime'
-          ? await fetchAnime(_search)
-          : await fetchTitles(widget.kind, _mode, _search, tmdbKey: widget.tmdbKey, omdbKey: widget.omdbKey);
+          ? await fetchAnime(_search, page: page)
+          : await fetchTitles(
+              widget.kind,
+              _mode,
+              _search,
+              tmdbKey: widget.tmdbKey,
+              omdbKey: widget.omdbKey,
+              page: page,
+            );
       if (!mounted || request != _request) return;
+      // Rankings shift between requests, so a later page can repeat a title already shown.
+      final shown = {for (final f in _results) f.extId};
       setState(() {
         _loading = false;
-        _results = found;
+        _page = page;
+        _more = found.more;
+        _results = [..._results, ...found.items.where((f) => shown.add(f.extId))];
       });
+      // A page of nothing but repeats leaves the list where it was; keep going.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _onScroll());
     } catch (e) {
       if (!mounted || request != _request) return;
       setState(() {
@@ -484,22 +535,12 @@ class _BrowserState extends State<_Browser> {
                 AppChip('Search', icon: Icons.search, selected: true, onPressed: () => _setSearch(typed)),
             ],
           ),
-        if (_loading)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: Spacing.xl),
-            child: Center(child: CircularProgressIndicator(color: c.accent)),
-          ),
-        if (_error.isNotEmpty)
-          Empty(
-            icon: Icons.cloud_off_outlined,
-            title: 'Could not load titles',
-            hint: _error,
-            action: _badKey
-                ? AppButton('Check my keys', kind: ButtonKind.soft, onPressed: widget.onFixKeys)
-                : AppButton('Try again', kind: ButtonKind.soft, onPressed: _fetch),
-          ),
         if (!_loading && _error.isEmpty && _results.isEmpty)
-          const Empty(icon: Icons.search_off, title: 'Nothing found', hint: 'Try a different title.'),
+          const Empty(
+            icon: Icons.search_off,
+            title: 'Nothing found',
+            hint: 'Check the spelling, or try the original title.',
+          ),
         for (final f in _results)
           AppCard(
             children: [
@@ -542,6 +583,25 @@ class _BrowserState extends State<_Browser> {
               ),
             ],
           ),
+        // Below the list, so loading or failing on a later page leaves the titles above in place.
+        if (_loading)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: Spacing.xl),
+            child: Center(child: CircularProgressIndicator(color: c.accent)),
+          ),
+        if (_error.isNotEmpty)
+          Empty(
+            icon: Icons.cloud_off_outlined,
+            title: _results.isEmpty ? 'Could not load titles' : 'Could not load more',
+            hint: _error,
+            action: _badKey
+                ? AppButton('Check my keys', kind: ButtonKind.soft, onPressed: widget.onFixKeys)
+                : AppButton(
+                    'Try again',
+                    kind: ButtonKind.soft,
+                    onPressed: () => _fetch(next: _results.isNotEmpty),
+                  ),
+          ),
         T(
           kind == 'anime'
               ? 'Data from AniList'
@@ -559,7 +619,8 @@ class _BrowserState extends State<_Browser> {
 class _ManualForm extends StatefulWidget {
   const _ManualForm({required this.onSave});
 
-  final void Function(String kind, String title, String date) onSave;
+  /// Saves the title; returns a message when it cannot be added.
+  final Future<String?> Function(String kind, String title, String date) onSave;
 
   @override
   State<_ManualForm> createState() => _ManualFormState();
@@ -571,16 +632,25 @@ class _ManualFormState extends State<_ManualForm> {
   String _date = '';
   String _error = '';
 
+  /// True while saving, so a second tap cannot add the title twice.
+  bool _busy = false;
+
   @override
   void dispose() {
     _title.dispose();
     super.dispose();
   }
 
-  void _save() {
+  Future<void> _save() async {
     final title = _title.text.trim();
     if (title.isEmpty) return setState(() => _error = 'Enter the title.');
-    widget.onSave(_kind, title, _date);
+    setState(() => _busy = true);
+    final problem = await widget.onSave(_kind, title, _date);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _error = problem ?? '';
+    });
   }
 
   @override
@@ -595,7 +665,7 @@ class _ManualFormState extends State<_ManualForm> {
         Field(label: 'Title', controller: _title, hint: 'Title', autofocus: true),
         DateField(label: 'Release date', value: _date, onChanged: (d) => setState(() => _date = d), optional: true),
         if (_error.isNotEmpty) T(_error, color: context.colors.danger),
-        AppButton('Add to my list', onPressed: _save),
+        AppButton('Add to my list', onPressed: _busy ? null : _save),
       ],
     );
   }

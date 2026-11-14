@@ -277,18 +277,10 @@ Palette paletteFor(String id, {int? customAccent, String customBase = 'neutral'}
   return palettes.firstWhere((p) => p.id == id, orElse: () => palettes.first);
 }
 
-/// The typefaces in use: [display] for titles and headings, [body] for everything else.
-/// Null means the phone's own font.
-abstract final class AppFonts {
-  static String? display;
-  static String? body;
-}
-
 ThemeData buildTheme(Brightness brightness, [Palette? palette]) {
   final c = AppColors.of(palette ?? palettes.first, brightness);
   return ThemeData(
     useMaterial3: true,
-    fontFamily: AppFonts.body,
     brightness: brightness,
     scaffoldBackgroundColor: c.background,
     colorScheme: ColorScheme.fromSeed(

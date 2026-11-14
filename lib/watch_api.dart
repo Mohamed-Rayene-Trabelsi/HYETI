@@ -49,15 +49,22 @@ class KeyError implements Exception {
   final String message;
 }
 
+/// One page of titles found online, and whether a further page exists.
+typedef FoundPage = ({List<Found> items, bool more});
+
 /* ---------- Anime: AniList, no key ---------- */
 
 const _anilistQuery = r'''
-query ($search: String) {
-  Page(perPage: 20) {
-    media(type: ANIME, search: $search, sort: [TRENDING_DESC], status_in: [RELEASING, NOT_YET_RELEASED], isAdult: false) {
+query ($search: String, $page: Int, $sort: [MediaSort], $status: [MediaStatus]) {
+  Page(page: $page, perPage: 20) {
+    pageInfo { hasNextPage }
+    media(type: ANIME, search: $search, sort: $sort, status_in: $status, isAdult: false) {
       id
       title { romaji english }
       averageScore
+      status
+      format
+      episodes
       nextAiringEpisode { airingAt episode }
       startDate { year month day }
       coverImage { medium }
@@ -91,10 +98,42 @@ Future<({String date, String note})?> nextAnimeEpisode(String extId) async {
   return (date: toKey(at), note: 'Episode ${next['episode']} · ${formatTime(at.hour * 60 + at.minute)}');
 }
 
-Future<List<Found>> fetchAnime(String search) async {
-  final data = await _anilist(_anilistQuery, {if (search.isNotEmpty) 'search': search});
-  final media = (data['Page'] as Map<String, dynamic>)['media'] as List;
-  return [
+/// What to say about an anime with no scheduled episode.
+String _animeNote(Map<String, dynamic> m, {required bool dated}) {
+  final episodes = m['episodes'] as int?;
+  final format = switch (m['format']) {
+    'MOVIE' => 'Movie',
+    'OVA' || 'ONA' => m['format'] as String,
+    'SPECIAL' => 'Special',
+    _ => '',
+  };
+  final state = switch (m['status']) {
+    'FINISHED' => episodes != null && episodes > 1 ? 'Finished · $episodes episodes' : 'Finished',
+    'RELEASING' => 'Airing',
+    'CANCELLED' => 'Cancelled',
+    'HIATUS' => 'On hiatus',
+    _ => dated ? 'Premiere' : 'Date not announced',
+  };
+  return [if (format.isNotEmpty) format, state].join(' · ');
+}
+
+/// Page [page] (from 1) of anime. With no [search]: trending shows that are airing or about to.
+/// With one: the closest matches among all anime, finished ones included.
+Future<FoundPage> fetchAnime(String search, {int page = 1}) async {
+  final data = await _anilist(_anilistQuery, {
+    'page': page,
+    if (search.isNotEmpty) ...{
+      'search': search,
+      'sort': ['SEARCH_MATCH', 'POPULARITY_DESC'],
+    } else ...{
+      'sort': ['TRENDING_DESC'],
+      'status': ['RELEASING', 'NOT_YET_RELEASED'],
+    },
+  });
+  final result = data['Page'] as Map<String, dynamic>;
+  final media = result['media'] as List;
+  final more = (result['pageInfo'] as Map<String, dynamic>?)?['hasNextPage'] == true;
+  final items = [
     for (final m in media.cast<Map<String, dynamic>>())
       () {
         final extId = 'anilist:${m['id']}';
@@ -127,10 +166,11 @@ Future<List<Found>> fetchAnime(String search) async {
           rating: rating,
           poster: poster,
           releaseDate: known ? toKey(DateTime(year, month, day)) : null,
-          note: known ? 'Premiere' : 'Date not announced',
+          note: _animeNote(m, dated: known),
         );
       }(),
   ];
+  return (items: items, more: more);
 }
 
 /* ---------- Movies and series: TMDB for the lists, OMDb for IMDb ratings ---------- */
@@ -181,33 +221,37 @@ Future<String?> _imdbRating(String kind, int id, String tmdbKey, String omdbKey)
 }
 
 /// Hot (trending this week) or upcoming movies / series, each with a rating.
-/// [mode] is 'hot' or 'upcoming'; a non-empty [search] overrides it.
-Future<List<Found>> fetchTitles(
+/// [mode] is 'hot' or 'upcoming'; a non-empty [search] overrides it. [page] counts from 1.
+Future<FoundPage> fetchTitles(
   String kind,
   String mode,
   String search, {
   required String tmdbKey,
   required String omdbKey,
+  int page = 1,
 }) async {
   final type = _tmdbType(kind);
   final today = todayKey();
-  final Map<String, dynamic> page;
+  final at = {'page': '$page'};
+  final Map<String, dynamic> result;
   if (search.isNotEmpty) {
-    page = await _tmdb('/search/$type', tmdbKey, {'query': search});
+    result = await _tmdb('/search/$type', tmdbKey, {'query': search, ...at});
   } else if (mode == 'hot') {
-    page = await _tmdb('/trending/$type/week', tmdbKey);
+    result = await _tmdb('/trending/$type/week', tmdbKey, at);
   } else {
     // Popular titles whose first release falls in the next three months.
     final dateField = kind == 'movie' ? 'primary_release_date' : 'first_air_date';
-    page = await _tmdb('/discover/$type', tmdbKey, {
+    result = await _tmdb('/discover/$type', tmdbKey, {
       'sort_by': 'popularity.desc',
       '$dateField.gte': today,
       '$dateField.lte': addDays(today, 90),
+      ...at,
     });
   }
 
-  final items = (page['results'] as List).cast<Map<String, dynamic>>().take(20);
-  return Future.wait([
+  final more = page < ((result['total_pages'] as num?) ?? 1);
+  final items = (result['results'] as List).cast<Map<String, dynamic>>();
+  final found = await Future.wait([
     for (final item in items)
       () async {
         final rawDate = (kind == 'movie' ? item['release_date'] : item['first_air_date']) as String?;
@@ -246,6 +290,7 @@ Future<List<Found>> fetchTitles(
         );
       }(),
   ]);
+  return (items: found, more: more);
 }
 
 /// For a series already on air: the date and label of its next episode, if one is scheduled.

@@ -7,7 +7,7 @@ import 'package:sqflite/sqflite.dart';
 /// One row as returned by SQLite.
 typedef Rec = Map<String, Object?>;
 
-const _databaseVersion = 3;
+const _databaseVersion = 4;
 
 const _tables = [
   'events', 'routines', 'day_offs', 'notes', 'watch_items', //
@@ -202,7 +202,34 @@ Future<void> _migrate(Database db, int from) async {
     // Poster image address for titles saved from the online lists.
     await db.execute('ALTER TABLE watch_items ADD COLUMN poster TEXT');
   }
+
+  if (from < 4) {
+    // The watchlist could hold the same title twice: typed in by hand more than once, or typed in and
+    // also saved from an online list. Keep one of each, preferring the one linked to an online source.
+    // Two entries that are both linked are different works that share a name, so both stay.
+    final rows = await db.rawQuery('SELECT * FROM watch_items ORDER BY ext_id IS NULL, id');
+    final kept = <String, Rec>{};
+    for (final row in rows) {
+      final key = watchTitleKey(row['kind'] as String, row['title'] as String);
+      final keeper = kept[key];
+      if (keeper == null || row['ext_id'] != null) {
+        kept.putIfAbsent(key, () => Map.of(row));
+        continue;
+      }
+      // A calendar block planned for the copy stays linked.
+      if (keeper['event_id'] == null && row['event_id'] != null) {
+        keeper['event_id'] = row['event_id'];
+        await db.execute('UPDATE watch_items SET event_id = ? WHERE id = ?', [row['event_id'], keeper['id']]);
+      }
+      await db.execute('DELETE FROM watch_items WHERE id = ?', [row['id']]);
+    }
+  }
 }
+
+/// Two watchlist titles of the same kind are the same one when this matches.
+/// Case, spaces and punctuation are ignored.
+String watchTitleKey(String kind, String title) =>
+    '$kind:${title.toLowerCase().replaceAll(RegExp(r'[\s\p{P}\p{S}]+', unicode: true), '')}';
 
 /// For a screen that shows database rows: implement [load] to read them into fields.
 /// It runs once at start and again after every write anywhere in the app.
