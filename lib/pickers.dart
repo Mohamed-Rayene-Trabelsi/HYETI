@@ -37,7 +37,7 @@ class _PickerButton extends StatelessWidget {
               alignment: Alignment.centerLeft,
               decoration: BoxDecoration(
                 color: c.surfaceAlt,
-                borderRadius: BorderRadius.circular(Radii.md),
+                borderRadius: BorderRadius.circular(Radii.button),
                 border: Border.all(color: open ? c.accent : c.border, width: 0.5),
               ),
               child: T(value),
@@ -187,7 +187,7 @@ class _TimeRangeFieldState extends State<TimeRangeField> {
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
                         color: v == selected ? c.accent : c.surfaceAlt,
-                        borderRadius: BorderRadius.circular(Radii.sm),
+                        borderRadius: BorderRadius.circular(Radii.button),
                       ),
                       child: T(
                         v.toString().padLeft(2, '0'),

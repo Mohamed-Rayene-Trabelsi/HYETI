@@ -22,6 +22,17 @@ class _BodyScreenState extends State<BodyScreen> {
   String _tab = 'gym';
   String _muscle = 'Chest';
 
+  /// Carries on with the exercise logged last today if it belongs to the picked muscle;
+  /// otherwise starts that muscle's first exercise.
+  Future<void> _logSet() async {
+    final last = await appDb.query(
+      'SELECT exercise FROM workout_sets WHERE date = ? AND muscle = ? ORDER BY id DESC LIMIT 1',
+      [todayKey(), _muscle],
+    );
+    if (!mounted) return;
+    openSetSheet(context, _muscle, last.isEmpty ? exercises[_muscle]!.first.name : last.first['exercise'] as String);
+  }
+
   @override
   Widget build(BuildContext context) {
     final gym = _tab == 'gym';
@@ -29,7 +40,7 @@ class _BodyScreenState extends State<BodyScreen> {
       title: 'Body',
       subtitle: formatDay(todayKey()),
       fabLabel: gym ? 'Log set' : 'Log food',
-      onFab: gym ? () => openSetSheet(context, _muscle, '') : () => openFoodSheet(context),
+      onFab: gym ? _logSet : () => openFoodSheet(context),
       children: [
         Segmented<String>(
           value: _tab,
@@ -47,11 +58,12 @@ class _BodyScreenState extends State<BodyScreen> {
   }
 }
 
+/// Opens the set logger for one exercise. An empty [exercise] asks for a name first.
 void openSetSheet(BuildContext context, String muscle, String exercise) {
   showSheet(
     context,
-    title: 'Log a set',
-    builder: (_) => _SetForm(initialMuscle: muscle, initialExercise: exercise),
+    title: exercise.isEmpty ? 'Another $muscle exercise' : exercise,
+    builder: (_) => _SetForm(muscle: muscle, exercise: exercise),
   );
 }
 
@@ -70,13 +82,17 @@ class _GymState extends State<Gym> with Live {
   String _side = 'front';
   String get _muscle => widget.muscle;
 
-  /// The exercise whose form tip is open, if any.
-  String? _tipFor;
   bool _allProgress = false;
+
+  /// False until the opening muscle has been chosen from what was trained.
+  bool _opened = false;
 
   List<Rec> _lastTrained = [];
   List<Rec> _todaySets = [];
   List<Rec> _tops = [];
+
+  /// The most recent set of every exercise ever logged.
+  List<Rec> _latest = [];
 
   @override
   Future<void> load() async {
@@ -85,12 +101,30 @@ class _GymState extends State<Gym> with Live {
     final tops = await appDb.query(
       'SELECT exercise, date, MAX(weight) AS top FROM workout_sets GROUP BY exercise, date ORDER BY date',
     );
+    final latest = await appDb.query(
+      'SELECT muscle, exercise, weight, reps FROM workout_sets '
+      'WHERE id IN (SELECT MAX(id) FROM workout_sets GROUP BY exercise) ORDER BY id DESC',
+    );
     _lastTrained = last;
     _todaySets = sets;
     _tops = tops;
-  }
+    _latest = latest;
 
-  void _openSetForm(String exercise) => openSetSheet(context, _muscle, exercise);
+    // Open on what is being trained today, or else on the muscle that has waited longest,
+    // so the right exercises are already on screen.
+    if (!_opened && mounted) {
+      _opened = true;
+      String? start;
+      if (sets.isNotEmpty) {
+        start = sets.last['muscle'] as String;
+      } else if (last.isNotEmpty) {
+        start =
+            (last.toList()..sort((a, b) => (a['last'] as String).compareTo(b['last'] as String))).first['muscle']
+                as String;
+      }
+      if (start != null && start != _muscle && muscles.contains(start)) _pick(start);
+    }
+  }
 
   void _openMembership() {
     showSheet(
@@ -119,18 +153,50 @@ class _GymState extends State<Gym> with Live {
     _ => 'Trained $days days ago',
   };
 
+  /// One exercise: the whole row opens its logger.
+  Widget _exerciseRow(BuildContext context, {required bool divider, required String name, String? dose}) {
+    final c = context.colors;
+    final unit = appDb.setting('weight_unit', 'kg');
+    final key = name.toLowerCase();
+    final today = _todaySets.where((s) => (s['exercise'] as String).toLowerCase() == key).length;
+    final last = _latest.where((s) => (s['exercise'] as String).toLowerCase() == key).firstOrNull;
+    return ListRow(
+      divider: divider,
+      onTap: () => openSetSheet(context, _muscle, name),
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              T(name, variant: TextVariant.label, maxLines: 1, style: const TextStyle(fontSize: 15)),
+              if (dose != null) T(dose, variant: TextVariant.small, color: c.accent),
+            ],
+          ),
+        ),
+        if (today > 0)
+          T('$today ${today == 1 ? 'set' : 'sets'} today', variant: TextVariant.small, color: c.success)
+        else if (last != null)
+          T('${plainNumber(last['weight'] as num)} $unit × ${last['reps']}', variant: TextVariant.small, dim: true),
+        Icon(Icons.chevron_right, color: c.textDim),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final today = todayKey();
     final unit = appDb.setting('weight_unit', 'kg');
+    final membership = appDb.setting<Map<String, Object?>?>('membership', null);
+    // The membership only earns the top of the screen when it is about to run out.
+    final membershipDue = membership != null && daysBetween(today, membership['end'] as String) <= 7;
+    final membershipStrip = _MembershipStrip(membership: membership, onEdit: _openMembership);
 
     // Longest-rested muscles first; never-trained ones lead.
     final lastByMuscle = {for (final r in _lastTrained) r['muscle'] as String: r['last'] as String};
     final rest = [
       for (final m in muscles) (muscle: m, days: lastByMuscle[m] == null ? null : daysBetween(lastByMuscle[m]!, today)),
     ]..sort((a, b) => (b.days ?? 9999) - (a.days ?? 9999));
-    final upNext = rest.where((r) => r.days == null || r.days! >= 2).take(3).toList();
     // Amber marks muscles that have been trained before and then left for five days or more.
     final stale = _lastTrained.isEmpty
         ? <String>[]
@@ -139,6 +205,15 @@ class _GymState extends State<Gym> with Live {
               if (r.days != null && r.days! >= 5) r.muscle,
           ];
     final selectedDays = rest.firstWhere((r) => r.muscle == _muscle).days;
+
+    final builtIn = exercises[_muscle]!;
+    final builtInNames = {for (final ex in builtIn) ex.name.toLowerCase()};
+    // Exercises the user named themselves for this muscle, most recent first.
+    final own = [
+      for (final s in _latest)
+        if (s['muscle'] == _muscle && !builtInNames.contains((s['exercise'] as String).toLowerCase()))
+          s['exercise'] as String,
+    ];
 
     final todayByExercise = <String, List<Rec>>{};
     for (final s in _todaySets) {
@@ -157,8 +232,8 @@ class _GymState extends State<Gym> with Live {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       spacing: Spacing.lg,
       children: [
-        _MembershipStrip(membership: appDb.setting<Map<String, Object?>?>('membership', null), onEdit: _openMembership),
-        // The figure on the left; what is picked and what is due on the right.
+        if (membershipDue) membershipStrip,
+        // The figure on the left; what is picked on the right.
         AppCard(
           padding: const EdgeInsets.all(Spacing.md),
           children: [
@@ -170,7 +245,7 @@ class _GymState extends State<Gym> with Live {
                   side: _side,
                   selected: _muscle,
                   stale: stale,
-                  height: 252,
+                  height: 220,
                   onSelect: (m) {
                     tick();
                     widget.onMuscle(m);
@@ -195,27 +270,11 @@ class _GymState extends State<Gym> with Live {
                       ),
                       const SizedBox(height: 2),
                       T(
-                        upNext.isEmpty ? 'ALL RESTED UP' : 'DUE NEXT',
+                        stale.isEmpty
+                            ? 'Tap a muscle, then an exercise below.'
+                            : 'Tap a muscle, then an exercise below. Amber has rested 5+ days.',
                         variant: TextVariant.small,
                         dim: true,
-                        style: const TextStyle(fontSize: 11, letterSpacing: 0.6, fontWeight: FontWeight.w600),
-                      ),
-                      if (upNext.isEmpty)
-                        const T('Everything was trained in the last two days.', variant: TextVariant.small, dim: true)
-                      else
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: [
-                            for (final r in upNext)
-                              AppChip(r.muscle, selected: r.muscle == _muscle, onPressed: () => _pick(r.muscle)),
-                          ],
-                        ),
-                      T(
-                        stale.isEmpty ? 'Tap a muscle on the figure.' : 'Tap a muscle. Amber ones have rested 5+ days.',
-                        variant: TextVariant.small,
-                        dim: true,
-                        style: const TextStyle(fontSize: 12),
                       ),
                     ],
                   ),
@@ -231,25 +290,17 @@ class _GymState extends State<Gym> with Live {
               spacing: 0,
               padding: listCardPadding,
               children: [
-                for (final (i, ex) in exercises[_muscle]!.indexed)
-                  ListRow(
-                    divider: i > 0,
-                    // The form tip stays tucked away until the row is tapped.
-                    onTap: () => setState(() => _tipFor = _tipFor == ex.name ? null : ex.name),
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            T(ex.name, variant: TextVariant.label, style: const TextStyle(fontSize: 15)),
-                            T(ex.dose, variant: TextVariant.small, color: c.accent),
-                            if (_tipFor == ex.name) T(ex.tip, variant: TextVariant.small, dim: true),
-                          ],
-                        ),
-                      ),
-                      AppButton('Log', kind: ButtonKind.soft, small: true, onPressed: () => _openSetForm(ex.name)),
-                    ],
-                  ),
+                for (final (i, ex) in builtIn.indexed)
+                  _exerciseRow(context, divider: i > 0, name: ex.name, dose: ex.dose),
+                for (final name in own) _exerciseRow(context, divider: true, name: name),
+                ListRow(
+                  divider: true,
+                  onTap: () => openSetSheet(context, _muscle, ''),
+                  children: [
+                    Expanded(child: T('Something else', variant: TextVariant.label, dim: true)),
+                    Icon(Icons.add, color: c.textDim),
+                  ],
+                ),
               ],
             ),
           ],
@@ -277,26 +328,11 @@ class _GymState extends State<Gym> with Live {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         spacing: Spacing.sm,
                         children: [
-                          Row(
-                            spacing: Spacing.sm,
-                            children: [
-                              Expanded(
-                                child: T(
-                                  '${group.key} · ${group.value.first['muscle']}',
-                                  variant: TextVariant.label,
-                                  maxLines: 1,
-                                  style: const TextStyle(fontSize: 15),
-                                ),
-                              ),
-                              AppButton(
-                                'Set',
-                                icon: Icons.add,
-                                kind: ButtonKind.soft,
-                                small: true,
-                                onPressed: () =>
-                                    openSetSheet(context, group.value.first['muscle'] as String, group.key),
-                              ),
-                            ],
+                          T(
+                            '${group.key} · ${group.value.first['muscle']}',
+                            variant: TextVariant.label,
+                            maxLines: 1,
+                            style: const TextStyle(fontSize: 15),
                           ),
                           // One chip per set; tap to remove it (with Undo).
                           Wrap(
@@ -338,6 +374,7 @@ class _GymState extends State<Gym> with Live {
               ),
             ],
           ),
+        if (!membershipDue) membershipStrip,
       ],
     );
   }
@@ -461,57 +498,84 @@ class _ProgressRow extends StatelessWidget {
   }
 }
 
-/// Stays open after each save so several sets can be logged in a row.
+/// Logs sets of one exercise. Weight and reps start from the last set, so repeating it is one tap,
+/// and the sheet stays open for the next set.
 class _SetForm extends StatefulWidget {
-  const _SetForm({required this.initialMuscle, required this.initialExercise});
+  const _SetForm({required this.muscle, required this.exercise});
 
-  final String initialMuscle;
-  final String initialExercise;
+  final String muscle;
+
+  /// Empty when the user is about to name an exercise of their own.
+  final String exercise;
 
   @override
   State<_SetForm> createState() => _SetFormState();
 }
 
 class _SetFormState extends State<_SetForm> with Live {
-  late String _muscle = widget.initialMuscle;
-  late final _exercise = TextEditingController(text: widget.initialExercise);
+  late final _name = TextEditingController(text: widget.exercise);
   final _weight = TextEditingController();
   final _reps = TextEditingController();
   String _message = '';
   bool _ok = false;
-  List<String> _known = [];
 
-  /// The most recent set of the exercise named in the form, if there is one.
+  /// The most recent set of this exercise, if there is one.
   Rec? _last;
+  List<Rec> _today = [];
+
+  Exercise? get _preset =>
+      exercises[widget.muscle]!.where((e) => e.name.toLowerCase() == _name.text.trim().toLowerCase()).firstOrNull;
 
   @override
   Future<void> load() async {
-    final rows = await appDb.query(
-      'SELECT exercise FROM workout_sets WHERE muscle = ? GROUP BY exercise ORDER BY MAX(id) DESC LIMIT 6',
-      [_muscle],
+    final exercise = _name.text.trim();
+    if (exercise.isEmpty) {
+      _last = null;
+      _today = [];
+      return;
+    }
+    final last = await appDb.query(
+      'SELECT weight, reps, date FROM workout_sets WHERE exercise = ? COLLATE NOCASE ORDER BY id DESC LIMIT 1',
+      [exercise],
     );
-    final exercise = _exercise.text.trim();
-    final last = exercise.isEmpty
-        ? const <Rec>[]
-        : await appDb.query(
-            'SELECT weight, reps, date FROM workout_sets WHERE exercise = ? COLLATE NOCASE ORDER BY id DESC LIMIT 1',
-            [exercise],
-          );
-    _known = [for (final r in rows) r['exercise'] as String];
+    final today = await appDb.query(
+      'SELECT weight, reps FROM workout_sets WHERE date = ? AND exercise = ? COLLATE NOCASE ORDER BY id',
+      [todayKey(), exercise],
+    );
     _last = last.firstOrNull;
-    // Start from what was lifted last time, so repeating a set is one tap.
-    if (_last != null && _weight.text.isEmpty && _reps.text.isEmpty) {
-      _weight.text = plainNumber(_last!['weight'] as num);
-      _reps.text = '${_last!['reps']}';
+    _today = today;
+    // Start from what was lifted last time, or from the low end of the suggested reps.
+    if (_weight.text.isEmpty && _reps.text.isEmpty) {
+      if (_last != null) {
+        _weight.text = plainNumber(_last!['weight'] as num);
+        _reps.text = '${_last!['reps']}';
+      } else {
+        _reps.text = RegExp(r'×\s*(\d+)').firstMatch(_preset?.dose ?? '')?.group(1) ?? '10';
+      }
     }
   }
 
   @override
   void dispose() {
-    _exercise.dispose();
+    _name.dispose();
     _weight.dispose();
     _reps.dispose();
     super.dispose();
+  }
+
+  double? get _weightValue =>
+      _weight.text.trim().isEmpty ? 0.0 : double.tryParse(_weight.text.trim().replaceFirst(',', '.'));
+
+  void _nudgeWeight(double by) {
+    tick();
+    final next = math.max(0.0, (_weightValue ?? 0) + by);
+    setState(() => _weight.text = plainNumber(next));
+  }
+
+  void _nudgeReps(int by) {
+    tick();
+    final next = math.max(1, (int.tryParse(_reps.text.trim()) ?? 0) + by);
+    setState(() => _reps.text = '$next');
   }
 
   void _fail(String text) => setState(() {
@@ -520,24 +584,24 @@ class _SetFormState extends State<_SetForm> with Live {
   });
 
   Future<void> _save() async {
-    final exercise = _exercise.text.trim();
-    final w = _weight.text.trim().isEmpty ? 0.0 : double.tryParse(_weight.text.trim().replaceFirst(',', '.'));
+    final exercise = _name.text.trim();
+    final w = _weightValue;
     final r = int.tryParse(_reps.text.trim());
     if (exercise.isEmpty) return _fail('Name the exercise.');
     if (w == null || !w.isFinite || w < 0 || r == null || r <= 0) {
       return _fail('Enter the weight as a number and a whole number of reps.');
     }
+    final number = _today.length + 1;
     await appDb.insert('INSERT INTO workout_sets (date, muscle, exercise, weight, reps) VALUES (?, ?, ?, ?, ?)', [
       todayKey(),
-      _muscle,
+      widget.muscle,
       exercise,
       w,
       r,
     ]);
     if (!mounted) return;
-    final unit = appDb.setting('weight_unit', 'kg');
     setState(() {
-      _message = 'Logged $exercise — ${plainNumber(w)} $unit × $r. Add the next set.';
+      _message = 'Set $number logged. Change the numbers or tap again for the next one.';
       _ok = true;
     });
   }
@@ -546,40 +610,17 @@ class _SetFormState extends State<_SetForm> with Live {
   Widget build(BuildContext context) {
     final c = context.colors;
     final unit = appDb.setting('weight_unit', 'kg');
+    final preset = _preset;
     return FormColumn(
       children: [
-        Wrap(
-          spacing: Spacing.sm,
-          runSpacing: Spacing.sm,
-          children: [
-            for (final m in muscles)
-              AppChip(
-                m,
-                selected: m == _muscle,
-                onPressed: () {
-                  setState(() => _muscle = m);
-                  reload();
-                },
-              ),
-          ],
-        ),
-        Field(label: 'Exercise', controller: _exercise, hint: 'Bench press', onChanged: (_) => reload()),
-        if (_known.isNotEmpty)
-          Wrap(
-            spacing: Spacing.sm,
-            runSpacing: Spacing.sm,
+        if (widget.exercise.isEmpty)
+          Field(label: 'Exercise', controller: _name, hint: 'Name it', autofocus: true, onChanged: (_) => reload()),
+        if (preset != null)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              for (final k in _known)
-                AppChip(
-                  k,
-                  selected: k == _exercise.text,
-                  onPressed: () {
-                    _exercise.text = k;
-                    _weight.clear();
-                    _reps.clear();
-                    reload();
-                  },
-                ),
+              T('${widget.muscle} · ${preset.dose}', variant: TextVariant.label, color: c.accent),
+              T(preset.tip, variant: TextVariant.small, dim: true),
             ],
           ),
         if (_last != null)
@@ -589,24 +630,94 @@ class _SetFormState extends State<_SetForm> with Live {
             variant: TextVariant.small,
             dim: true,
           ),
+        _Stepper(
+          label: 'Weight ($unit)',
+          controller: _weight,
+          hint: '0',
+          decimal: true,
+          onLess: () => _nudgeWeight(unit == 'lb' ? -5 : -2.5),
+          onMore: () => _nudgeWeight(unit == 'lb' ? 5 : 2.5),
+        ),
+        _Stepper(
+          label: 'Reps',
+          controller: _reps,
+          hint: '10',
+          onLess: () => _nudgeReps(-1),
+          onMore: () => _nudgeReps(1),
+        ),
+        if (_today.isNotEmpty)
+          T(
+            'Today: ${[for (final s in _today) '${plainNumber(s['weight'] as num)} × ${s['reps']}'].join('  ·  ')}',
+            variant: TextVariant.small,
+            dim: true,
+          ),
+        if (_message.isNotEmpty) T(_message, variant: TextVariant.small, color: _ok ? c.success : c.danger),
+        AppButton('Log set', onPressed: _save),
+      ],
+    );
+  }
+}
+
+/// A number with a big minus and plus either side, for one-handed use between sets.
+/// The number itself can still be typed.
+class _Stepper extends StatelessWidget {
+  const _Stepper({
+    required this.label,
+    required this.controller,
+    required this.hint,
+    required this.onLess,
+    required this.onMore,
+    this.decimal = false,
+  });
+
+  final String label;
+  final TextEditingController controller;
+  final String hint;
+  final VoidCallback onLess;
+  final VoidCallback onMore;
+  final bool decimal;
+
+  Widget _button(BuildContext context, IconData icon, String name, VoidCallback onTap) {
+    final c = context.colors;
+    return Semantics(
+      button: true,
+      label: '$name $label',
+      excludeSemantics: true,
+      child: Material(
+        color: c.surfaceAlt,
+        shape: buttonShape,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: SizedBox(width: 64, height: 52, child: Icon(icon, color: c.text, size: 24)),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      spacing: Spacing.xs,
+      children: [
+        T(label, variant: TextVariant.label, dim: true, maxLines: 1),
         Row(
           spacing: Spacing.sm,
           children: [
+            _button(context, Icons.remove, 'Less', onLess),
             Expanded(
-              child: Field(
-                label: 'Weight ($unit)',
-                controller: _weight,
-                hint: '0',
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              child: TextField(
+                controller: controller,
+                textAlign: TextAlign.center,
+                keyboardType: TextInputType.numberWithOptions(decimal: decimal),
+                style: textStyle(context, TextVariant.number).copyWith(fontSize: 22),
+                decoration: fieldDecoration(context, hint: hint),
               ),
             ),
-            Expanded(
-              child: Field(label: 'Reps', controller: _reps, hint: '10', keyboardType: TextInputType.number),
-            ),
+            _button(context, Icons.add, 'More', onMore),
           ],
         ),
-        if (_message.isNotEmpty) T(_message, color: _ok ? c.success : c.danger),
-        AppButton('Log set', onPressed: _save),
       ],
     );
   }

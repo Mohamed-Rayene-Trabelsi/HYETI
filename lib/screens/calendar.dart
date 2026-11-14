@@ -611,7 +611,7 @@ class _NavArrow extends StatelessWidget {
       label: hint,
       child: Material(
         color: c.surfaceAlt,
-        shape: const CircleBorder(),
+        shape: buttonShape,
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onTap,
@@ -787,7 +787,7 @@ class _Agenda extends StatelessWidget {
                           width: 26,
                           height: 26,
                           decoration: BoxDecoration(
-                            shape: BoxShape.circle,
+                            borderRadius: BorderRadius.circular(7),
                             color: done ? c.success : null,
                             border: Border.all(color: done ? c.success : c.textDim, width: 2),
                           ),

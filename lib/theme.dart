@@ -346,6 +346,9 @@ abstract final class Spacing {
 
 abstract final class Radii {
   static const double sm = 8, md = 12, lg = 16, pill = 999;
+
+  /// Every button, chip, toggle and input: a rectangle with slightly rounded corners.
+  static const double button = 10;
 }
 
 const double maxContentWidth = 560;

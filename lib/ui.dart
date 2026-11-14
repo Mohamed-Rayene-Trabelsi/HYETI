@@ -67,7 +67,10 @@ class T extends StatelessWidget {
 
 /* ---------- Layout ---------- */
 
-/// A round icon button for screen headers.
+/// The one outline every button in the app shares.
+const buttonShape = RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(Radii.button)));
+
+/// A square icon button for screen headers.
 class HeaderIcon extends StatelessWidget {
   const HeaderIcon(this.icon, {super.key, required this.label, required this.onPressed});
 
@@ -84,7 +87,7 @@ class HeaderIcon extends StatelessWidget {
       excludeSemantics: true,
       child: Material(
         color: c.surfaceAlt,
-        shape: const CircleBorder(),
+        shape: buttonShape,
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onPressed,
@@ -200,7 +203,7 @@ class _Fab extends StatelessWidget {
         color: c.accent,
         elevation: 3,
         shadowColor: const Color(0xFF000000),
-        borderRadius: BorderRadius.circular(18),
+        shape: buttonShape,
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onPressed,
@@ -388,7 +391,7 @@ class AppButton extends StatelessWidget {
       ButtonKind.plain => c.accent,
       ButtonKind.soft => c.text,
     };
-    final radius = BorderRadius.circular(small ? Radii.sm : Radii.md);
+    final radius = BorderRadius.circular(Radii.button);
     return Opacity(
       opacity: onPressed == null ? 0.4 : 1,
       child: Material(
@@ -450,11 +453,11 @@ class AppChip extends StatelessWidget {
         duration: const Duration(milliseconds: 150),
         decoration: ShapeDecoration(
           color: selected ? tint : c.surfaceAlt,
-          shape: StadiumBorder(side: BorderSide(color: selected ? tint : c.border, width: 0.5)),
+          shape: buttonShape.copyWith(side: BorderSide(color: selected ? tint : c.border, width: 0.5)),
         ),
         child: Material(
           type: MaterialType.transparency,
-          shape: const StadiumBorder(),
+          shape: buttonShape,
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: onPressed == null
@@ -504,7 +507,7 @@ class Segmented<V> extends StatelessWidget {
     return Container(
       height: 44,
       padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(color: c.surfaceAlt, borderRadius: BorderRadius.circular(Radii.md)),
+      decoration: BoxDecoration(color: c.surfaceAlt, borderRadius: BorderRadius.circular(Radii.button)),
       child: Stack(
         children: [
           if (index >= 0)
@@ -518,7 +521,7 @@ class Segmented<V> extends StatelessWidget {
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     color: c.surface,
-                    borderRadius: BorderRadius.circular(Radii.md - 3),
+                    borderRadius: BorderRadius.circular(Radii.button - 3),
                     boxShadow: const [BoxShadow(color: Color(0x1A000000), blurRadius: 4, offset: Offset(0, 1))],
                   ),
                 ),
@@ -555,7 +558,7 @@ class Segmented<V> extends StatelessWidget {
 InputDecoration fieldDecoration(BuildContext context, {String? hint, IconData? icon}) {
   final c = context.colors;
   OutlineInputBorder border(Color color, [double width = 0.5]) => OutlineInputBorder(
-    borderRadius: BorderRadius.circular(Radii.md),
+    borderRadius: BorderRadius.circular(Radii.button),
     borderSide: BorderSide(color: color, width: width),
   );
   return InputDecoration(

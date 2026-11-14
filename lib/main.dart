@@ -156,6 +156,7 @@ class _AppTabsState extends State<AppTabs> with WidgetsBindingObserver {
             child: NavigationBar(
               selectedIndex: _index,
               onDestinationSelected: _select,
+              indicatorShape: buttonShape,
               destinations: [
                 for (final t in _tabs)
                   NavigationDestination(icon: Icon(t.icon), selectedIcon: Icon(t.iconActive), label: t.title),

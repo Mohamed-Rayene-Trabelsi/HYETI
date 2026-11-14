@@ -54,7 +54,7 @@ void main() {
   testWidgets('every tab opens without errors, and settings open from the gear', (tester) async {
     await start(tester);
     for (final (tab, marker) in [
-      ('Body', 'DUE NEXT'),
+      ('Body', 'CHEST EXERCISES'),
       ('Wallet', 'THIS WEEK'),
       ('Watch', 'Your list is empty'),
       ('Notes', 'No notes yet'),
@@ -80,7 +80,7 @@ void main() {
     await tester.fling(find.byType(PageView), const Offset(-300, 0), 1200);
     await settle(tester);
     expect(selectedTab(tester), 1);
-    expect(find.text('DUE NEXT').hitTestable(), findsOneWidget);
+    expect(find.text('CHEST EXERCISES').hitTestable(), findsOneWidget);
 
     await tester.fling(find.byType(PageView), const Offset(300, 0), 1200);
     await settle(tester);
@@ -143,14 +143,18 @@ void main() {
   testWidgets('a logged set appears in today\'s workout, and removing it can be undone', (tester) async {
     await start(tester);
     await openTab(tester, 'Body');
+    // Tapping an exercise opens its logger; plus and minus nudge the numbers.
+    await tapText(tester, 'Bench press');
+    await tester.enterText(field(0), '60');
+    await tester.enterText(field(1), '7');
+    await tester.tap(find.bySemanticsLabel('More Weight (kg)'));
+    await tester.tap(find.bySemanticsLabel('More Reps'));
     await tapText(tester, 'Log set');
-    await tester.enterText(field(0), 'Bench press');
-    await tester.enterText(field(1), '62.5');
-    await tester.enterText(field(2), '8');
-    await tapText(tester, 'Log set');
+    expect(find.textContaining('Set 1 logged'), findsOneWidget);
     await tapText(tester, 'Close');
 
     expect(find.text('62.5 kg × 8'), findsOneWidget);
+    expect(find.text('1 set today'), findsOneWidget);
 
     await tapText(tester, '62.5 kg × 8');
     expect(find.text('62.5 kg × 8'), findsNothing);

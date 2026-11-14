@@ -234,7 +234,7 @@ class ThemePicker extends StatelessWidget {
                       height: 38,
                       decoration: BoxDecoration(
                         color: swatch,
-                        shape: BoxShape.circle,
+                        borderRadius: BorderRadius.circular(Radii.button),
                         border: Border.all(
                           color: swatch.toARGB32() == customAccent.toARGB32() ? c.text : Colors.transparent,
                           width: 3,
@@ -290,7 +290,7 @@ class _ThemeTile extends StatelessWidget {
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
                 color: t.background,
-                borderRadius: BorderRadius.circular(Radii.md),
+                borderRadius: BorderRadius.circular(Radii.button),
                 border: Border.all(color: selected ? c.accent : c.border, width: selected ? 2.5 : 1),
               ),
               child: Row(

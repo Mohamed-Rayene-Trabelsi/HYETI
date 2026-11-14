@@ -112,6 +112,12 @@ void main() {
     await settle(tester);
     await snap(tester, 'body_back');
 
+    await tester.tap(find.text('Bench press').hitTestable().first);
+    await settle(tester);
+    await snap(tester, 'body_log_set');
+    await tester.tap(find.text('Close'));
+    await settle(tester);
+
     await tester.tap(find.byIcon(Icons.settings_outlined).hitTestable());
     await settle(tester);
     await snap(tester, 'settings');
