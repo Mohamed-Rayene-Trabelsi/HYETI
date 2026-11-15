@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_mobile_app/date.dart';
+import 'package:personal_mobile_app/receipt.dart';
 import 'package:personal_mobile_app/screens/nutrition.dart';
 import 'package:personal_mobile_app/screens/wallet.dart';
 import 'package:personal_mobile_app/ui.dart';
@@ -71,6 +72,46 @@ void main() {
     test('needs plausible stats', () {
       expect(suggestPlan(sex: 'male', age: '', height: '178', weight: '75', activity: 1.2, goal: 0), isNull);
       expect(suggestPlan(sex: 'female', age: '30', height: '300', weight: '60', activity: 1.2, goal: 0), isNull);
+    });
+  });
+
+  group('receipts', () {
+    test('finds the total, the shop and the date', () {
+      final r = parseReceipt('''
+SUPER MARKET CENTRAL
+12 Main Street
+Tel 71 234 567
+14/11/2026 18:42
+Milk 1L        1.85
+Bread          0.90
+Chicken       12.40
+SUBTOTAL      15.15
+TAX            1.06
+TOTAL         16.21
+CASH          20.00
+CHANGE         3.79
+''');
+      expect(r.amount, 16.21);
+      expect(r.label, 'Super Market Central');
+      expect(r.date, '2026-11-14');
+    });
+
+    test('reads three-decimal currencies and totals printed on the next line', () {
+      final r = parseReceipt(
+        'Monoprix\n2026-03-02\nEau 1,200\nPain 0,450\nNET A PAYER\n12,650\nESPECES 20,000',
+        currency: 'TND',
+      );
+      expect(r.amount, 12.65);
+      expect(r.date, '2026-03-02');
+      // The same figures in a two-decimal currency are thousands.
+      expect(parseReceipt('Total 12,650').amount, 12650);
+    });
+
+    test('falls back to the largest price, and leaves blanks when nothing is there', () {
+      expect(parseReceipt('Cafe Luna\nEspresso 2.50\nCroissant 3.20\nMerci').amount, 3.2);
+      final empty = parseReceipt('hello');
+      expect(empty.amount, isNull);
+      expect(empty.date, isNull);
     });
   });
 }

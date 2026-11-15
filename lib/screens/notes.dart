@@ -52,10 +52,12 @@ class _NotesScreenState extends State<NotesScreen> with Live {
     return Screen(
       title: 'Notes',
       subtitle: '${_notes.length} ${_notes.length == 1 ? 'note' : 'notes'}',
-      actions: [HeaderIcon(Icons.brush_outlined, label: 'New sketch', onPressed: () => _open(null, sketch: true))],
       fabLabel: 'New note',
       fabIcon: Icons.edit_outlined,
       onFab: () => _open(null),
+      secondFabLabel: 'Sketch',
+      secondFabIcon: Icons.brush_outlined,
+      onSecondFab: () => _open(null, sketch: true),
       children: [
         if (_notes.isNotEmpty || searching)
           Field(
@@ -69,7 +71,7 @@ class _NotesScreenState extends State<NotesScreen> with Live {
           Empty(
             icon: searching ? Icons.search_off : Icons.sticky_note_2_outlined,
             title: searching ? 'No matches' : 'No notes yet',
-            hint: searching ? 'Try a different word.' : 'Tap “New note” to write one, or the brush to draw one.',
+            hint: searching ? 'Try a different word.' : 'Tap “New note” to write one, or “Sketch” to draw one.',
           ),
         if (pinned.isNotEmpty)
           Section(

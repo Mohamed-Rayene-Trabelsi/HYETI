@@ -9,16 +9,20 @@ import 'screens/wallet.dart';
 import 'screens/watch.dart';
 import 'theme.dart';
 import 'ui.dart';
+import 'update.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Opened before the first frame, so the saved theme is known and never flashes the wrong one.
   appDb = await AppDb.open();
-  runApp(const LifeApp());
+  runApp(const LifeApp(checkForUpdates: true));
 }
 
 class LifeApp extends StatelessWidget {
-  const LifeApp({super.key});
+  const LifeApp({super.key, this.checkForUpdates = false});
+
+  /// Whether to ask GitHub for a newer release once the app is up. Off in tests.
+  final bool checkForUpdates;
 
   @override
   Widget build(BuildContext context) {
@@ -42,7 +46,13 @@ class LifeApp extends StatelessWidget {
             'dark' => ThemeMode.dark,
             _ => ThemeMode.system,
           },
-          home: const AppTabs(),
+          // Touching anything else — a tab, a button, a swipe — puts an undo message away.
+          builder: (context, child) => Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: (e) => dismissUndo(e.position),
+            child: child,
+          ),
+          home: AppTabs(checkForUpdates: checkForUpdates),
           routes: {'/settings': (_) => const SettingsScreen()},
         );
       },
@@ -68,7 +78,9 @@ const _tabs = [
 
 /// The five tabs. Swipe sideways or use the bar to move between them.
 class AppTabs extends StatefulWidget {
-  const AppTabs({super.key});
+  const AppTabs({super.key, this.checkForUpdates = false});
+
+  final bool checkForUpdates;
 
   @override
   State<AppTabs> createState() => _AppTabsState();
@@ -86,6 +98,11 @@ class _AppTabsState extends State<AppTabs> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (widget.checkForUpdates) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) promptForUpdate(context);
+      });
+    }
   }
 
   @override

@@ -103,7 +103,8 @@ class _CalendarScreenState extends State<CalendarScreen> with Live {
   List<String> _offDates = [];
   List<Rec> _routines = [];
 
-  String get _firstDay => appDb.setting('week_start', 'mon');
+  // Weeks run Monday to Sunday.
+  String get _firstDay => 'mon';
   String get _weekFrom => startOfWeek(_date, _firstDay);
   String get _gridFrom => startOfWeek(monthStart(_date), _firstDay);
 
@@ -665,7 +666,6 @@ class _Agenda extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
     if (blocks.isEmpty) {
       return AppCard(center: true, children: [T(emptyText, dim: true, align: TextAlign.center)]);
     }
@@ -679,18 +679,7 @@ class _Agenda extends StatelessWidget {
       busyUntil = busyUntil == null || end > busyUntil ? end : busyUntil;
     }
 
-    return Material(
-      color: c.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(Radii.lg),
-        side: BorderSide(color: c.border, width: 0.5),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: rows),
-      ),
-    );
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, spacing: 4, children: rows);
   }
 
   Widget _row(BuildContext context, Rec e) {
@@ -700,61 +689,49 @@ class _Agenda extends StatelessWidget {
     final done = e['done'] == 1;
     final late = shift > flex;
     final current = now != null && !done && start <= now! && now! < end;
-    final color = categoryOf(e['category'] as String).color;
-    final detail = shift > 0
-        ? '${_span(end - start)} · $shift min late${late ? ', past buffer' : ''}'
-        : '${_span(end - start)}${flex > 0 ? ' · $flex min buffer' : ''}';
+    final category = categoryOf(e['category'] as String);
+    final color = category.color;
+    // One quiet line: when, and how long. The buffer only matters once the block is running late.
+    final detail =
+        '${formatTime(start)} – ${formatTime(end)} · ${_span(end - start)}'
+        '${shift > 0 ? ' · $shift min late${late ? ', past buffer' : ''}' : ''}';
 
     return Semantics(
       button: true,
       label: 'Edit ${e['title']}, ${formatTime(start)} to ${formatTime(end)}${done ? ', done' : ''}',
-      child: InkWell(
-        onTap: () => onEdit(e),
-        child: Container(
-          // The block happening right now is picked out.
-          color: current ? c.accent.withValues(alpha: 0.10) : null,
-          padding: const EdgeInsets.fromLTRB(Spacing.md, 9, Spacing.sm, 9),
-          child: IntrinsicHeight(
+      child: Material(
+        // A soft wash of the activity's colour; the block happening right now is outlined in it.
+        color: Color.alphaBlend(color.withValues(alpha: done ? 0.04 : (current ? 0.18 : 0.09)), c.surface),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(Radii.md),
+          side: current ? BorderSide(color: color, width: 1.5) : BorderSide(color: c.border, width: 0.5),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => onEdit(e),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(Spacing.md, 10, Spacing.xs, 10),
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
               spacing: Spacing.md,
               children: [
-                SizedBox(
-                  width: 44,
-                  child: Opacity(
-                    opacity: done ? 0.5 : 1,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        T(
-                          formatTime(start),
-                          variant: TextVariant.label,
-                          style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
-                        ),
-                        T(
-                          formatTime(end),
-                          variant: TextVariant.small,
-                          dim: true,
-                          style: const TextStyle(fontSize: 12, fontFeatures: [FontFeature.tabularFigures()]),
-                        ),
-                      ],
+                Opacity(
+                  opacity: done ? 0.45 : 1,
+                  child: Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(Radii.button),
                     ),
-                  ),
-                ),
-                Container(
-                  width: 4,
-                  decoration: BoxDecoration(
-                    color: done ? color.withValues(alpha: 0.4) : color,
-                    borderRadius: BorderRadius.circular(2),
+                    child: Icon(category.icon, size: 20, color: color),
                   ),
                 ),
                 Expanded(
                   child: Opacity(
                     opacity: done ? 0.5 : 1,
                     child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.start,
+                      spacing: 1,
                       children: [
                         T(
                           e['title'] as String,
@@ -767,7 +744,7 @@ class _Agenda extends StatelessWidget {
                           variant: TextVariant.small,
                           maxLines: 1,
                           color: shift > 0 ? (late ? c.warn : c.success) : c.textDim,
-                          style: const TextStyle(fontSize: 12),
+                          style: const TextStyle(fontSize: 12.5, fontFeatures: [FontFeature.tabularFigures()]),
                         ),
                       ],
                     ),
@@ -780,19 +757,17 @@ class _Agenda extends StatelessWidget {
                     behavior: HitTestBehavior.opaque,
                     onTap: () => onToggle(e),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Center(
-                        child: AnimatedContainer(
-                          duration: const Duration(milliseconds: 150),
-                          width: 26,
-                          height: 26,
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(7),
-                            color: done ? c.success : null,
-                            border: Border.all(color: done ? c.success : c.textDim, width: 2),
-                          ),
-                          child: done ? Icon(Icons.check, size: 16, color: c.background) : null,
+                      padding: const EdgeInsets.all(10),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        width: 24,
+                        height: 24,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: done ? c.success : null,
+                          border: Border.all(color: done ? c.success : c.textDim.withValues(alpha: 0.6), width: 1.5),
                         ),
+                        child: done ? Icon(Icons.check, size: 15, color: c.background) : null,
                       ),
                     ),
                   ),
@@ -805,35 +780,31 @@ class _Agenda extends StatelessWidget {
     );
   }
 
-  /// Free time between two blocks; tapping it starts a new block there.
+  /// Free time between two blocks, as a faint divider; tapping it starts a new block there.
   Widget _gap(BuildContext context, int from, int to) {
     final c = context.colors;
+    final line = Expanded(child: Container(height: 0.5, color: c.border));
     return Semantics(
       button: true,
       label: 'Free for ${_span(to - from)} from ${formatTime(from)}. Add something here',
       excludeSemantics: true,
-      child: InkWell(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: () => onAddAt(from),
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(Spacing.md, 3, Spacing.md, 3),
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.md, vertical: 3),
           child: Row(
-            spacing: Spacing.md,
+            spacing: Spacing.sm,
             children: [
-              SizedBox(
-                width: 44,
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: Icon(Icons.add, size: 14, color: c.textDim),
-                ),
+              line,
+              Icon(Icons.add, size: 13, color: c.textDim),
+              T(
+                '${_span(to - from)} free',
+                variant: TextVariant.small,
+                dim: true,
+                style: const TextStyle(fontSize: 12),
               ),
-              Expanded(
-                child: T(
-                  'Free · ${_span(to - from)}',
-                  variant: TextVariant.small,
-                  dim: true,
-                  style: const TextStyle(fontSize: 12),
-                ),
-              ),
+              line,
             ],
           ),
         ),

@@ -21,7 +21,7 @@ class Stroke {
 
 /// Pen colours after ink. Like calendar categories, they are the same in every theme.
 const _penColors = [0, 0xFFEF5350, 0xFFFFA726, 0xFF3DBE7F, 0xFF4F8CFF, 0xFFB57BFF];
-const _penWidths = [0.006, 0.014, 0.03];
+const _thinnest = 0.004, _thickest = 0.045;
 
 /// Points are stored flat: x, y, x, y, …
 List<Offset> _points(List<num> flat) => [
@@ -137,7 +137,7 @@ class _SketchEditorState extends State<SketchEditor> {
   int _at = 0;
 
   int _color = 0;
-  double _width = _penWidths[1];
+  double _width = 0.014;
   bool _erasing = false;
 
   /// The finger that is drawing; a second finger is ignored.
@@ -343,21 +343,43 @@ class _SketchEditorState extends State<SketchEditor> {
                 Row(
                   spacing: Spacing.sm,
                   children: [
-                    for (final (i, width) in _penWidths.indexed)
-                      _Tool(
-                        label: const ['Thin pen', 'Medium pen', 'Thick pen'][i],
-                        selected: !_erasing && width == _width,
-                        onTap: () => setState(() {
-                          _width = width;
-                          _erasing = false;
-                        }),
+                    // A dot the size the pen will draw, then the slider that sets it.
+                    SizedBox(
+                      width: 24,
+                      height: 40,
+                      child: Center(
                         child: Container(
-                          width: 6.0 + i * 6,
-                          height: 6.0 + i * 6,
-                          decoration: BoxDecoration(color: c.text, shape: BoxShape.circle),
+                          width: 3 + 19 * (_width - _thinnest) / (_thickest - _thinnest),
+                          height: 3 + 19 * (_width - _thinnest) / (_thickest - _thinnest),
+                          decoration: BoxDecoration(
+                            color: _color == 0 ? c.text : Color(_color),
+                            shape: BoxShape.circle,
+                          ),
                         ),
                       ),
-                    const Spacer(),
+                    ),
+                    Expanded(
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          trackHeight: 4,
+                          activeTrackColor: c.accent,
+                          inactiveTrackColor: c.border,
+                          thumbColor: c.accent,
+                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+                        ),
+                        child: Slider(
+                          key: const Key('pen-width'),
+                          semanticFormatterCallback: (v) => 'Pen width ${(100 * v / _thickest).round()}%',
+                          min: _thinnest,
+                          max: _thickest,
+                          value: _width,
+                          onChanged: (v) => setState(() {
+                            _width = v;
+                            _erasing = false;
+                          }),
+                        ),
+                      ),
+                    ),
                     _Tool(
                       label: 'Undo',
                       onTap: _at > 0 ? () => setState(() => _at--) : null,

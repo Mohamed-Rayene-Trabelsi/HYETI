@@ -34,7 +34,16 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
+    }
+}
+
+// The released APK is for 64-bit ARM phones only; without this the receipt text reader ships three copies
+// of itself (about 18 MB more).
+androidComponents {
+    onVariants(selector().withBuildType("release")) { variant ->
+        variant.packaging.jniLibs.excludes.addAll("lib/x86_64/**", "lib/x86/**", "lib/armeabi-v7a/**")
     }
 }
 

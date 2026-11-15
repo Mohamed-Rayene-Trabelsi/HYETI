@@ -14,12 +14,13 @@ A personal planner for Android. Calendar, gym and food log, wallet, watchlist an
 
 ## What's in it
 
+- **Home-screen widget.** "Up next" shows the block happening now or coming next and the day's progress, with a Done button.
 - **Calendar.** Set up a weekly routine once and it fills in every day. Day, week and month views. Blocks are added from one sheet: pick one of sixteen activities, a start time and a one-tap length. If you're running late you can push the rest of the day back, and you can mark days off.
 - **Body.** A muscle map that shows what you trained and what has rested long enough, with exercise suggestions and set logging. There is a countdown for your gym membership, and a nutrition side with a calorie and macro plan and a food log.
-- **Wallet.** Income, spending and savings, a weekly budget and a savings goal.
+- **Wallet.** Income, spending and savings, a weekly budget and a savings goal. Photograph a receipt and the amount, shop and date are filled in for you; the picture is read on the phone and never leaves it.
 - **Watch.** A watchlist for movies, series and anime, with what's popular and what's coming out. A watch night can go straight onto the calendar.
 - **Notes.** Written notes and finger-drawn sketches, which you can search and pin. Sketches have six pen colours, three pen sizes, an eraser, and undo and redo.
-- **Settings.** Light or dark, eight colour themes (one of them yours to mix), week start, units, currency, and a button that erases everything.
+- **Settings.** Light or dark, eight colour themes (one of them yours to mix), your country and its currency, units, and a button that erases everything.
 
 ## Install
 
@@ -54,7 +55,7 @@ flutter test
 
 ### Making a release
 
-1. Raise `version` in `pubspec.yaml`, both parts (`1.0.1+2` becomes `1.0.2+3`). Android won't install a build over an older one unless the number after the `+` went up.
+1. Raise `version` in `pubspec.yaml`, both parts (`1.0.1+2` becomes `1.0.2+3`). Android won't install a build over an older one unless the number after the `+` went up. Set `appVersion` in `lib/update.dart` to the same first part; the app compares it with the newest release to offer updates.
 2. Build:
 
    ```bash
@@ -75,7 +76,7 @@ One catch: the APK is signed with the debug key of the computer that built it. A
 | `test/` | Unit and widget tests. `test/preview/` has screenshots drawn by `render_preview_test.dart` |
 | `android/` | The Android project Flutter builds |
 
-Data lives in SQLite on the phone. The only network calls are the Watch tab's lookups to AniList, TMDB and OMDb.
+Data lives in SQLite on the phone. The only network calls are the Watch tab's lookups to AniList, TMDB and OMDb, and a check on start for a newer release on GitHub.
 
 ## Licence
 

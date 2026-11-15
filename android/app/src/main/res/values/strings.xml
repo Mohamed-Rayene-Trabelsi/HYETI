@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_up_next_name">Up next</string>
+    <string name="widget_up_next_description">The calendar block happening now or coming next, with a button to tick it off.</string>
+    <string name="widget_done">✓ Done</string>
+</resources>

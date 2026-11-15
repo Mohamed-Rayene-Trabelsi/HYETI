@@ -1,4 +1,4 @@
-HYETI is a Flutter app for Android only. All data stays on the phone in SQLite; the only network calls are the Watch tab's lookups (AniList, TMDB, OMDb).
+HYETI is a Flutter app for Android only. All data stays on the phone in SQLite; the only network calls are the Watch tab's lookups (AniList, TMDB, OMDb) and the update check, which asks GitHub for the latest release.
 
 ## Flutter has changed — check before you trust memory
 
@@ -15,7 +15,7 @@ flutter run                 # run on a connected phone or emulator
 flutter build apk --release --target-platform android-arm64 # installable APK in build/app/outputs/flutter-apk/
 ```
 
-To publish a build, raise `version` in `pubspec.yaml`, build, and attach `app-release.apk`, renamed `HYETI.apk`, to a new GitHub release tagged `v<version>`; the README's download link points at the latest release's `HYETI.apk`. Do not commit APKs to the repository (`release/` is ignored and is only a local staging folder). The APK is signed with the debug key of the computer that built it, so only builds from that computer install over the app already on the phone.
+To publish a build, raise `version` in `pubspec.yaml` and `appVersion` in `lib/update.dart` to match (a test fails if they differ), build, and attach `app-release.apk`, renamed `HYETI.apk`, to a new GitHub release tagged `v<version>`; the README's download link points at the latest release's `HYETI.apk`. Do not commit APKs to the repository (`release/` is ignored and is only a local staging folder). The APK is signed with the debug key of the computer that built it, so only builds from that computer install over the app already on the phone. On start the app compares `appVersion` with the latest release's tag and offers the download when the tag is newer, so the tag and the `HYETI.apk` file name must keep this form, and the repository must be public for the check to work.
 
 Run `flutter analyze` and `flutter test` before declaring any task done.
 
@@ -37,7 +37,8 @@ The toolchain (`flutter`, JDK 17, the Android SDK) is on the user PATH; where it
 - `lib/ui.dart` — shared widgets (`Screen`, `AppCard`, `AppButton`, `Field`, `showSheet`, …). Use these rather than raw Material widgets so screens stay consistent.
 - `lib/theme.dart` — colour themes (`palettes`, `customPalette`), the colours in use (`context.colors`), spacing, calendar categories. Never hard-code a colour a theme should control; take it from `context.colors`.
 - `lib/date.dart` — date helpers. Dates are `'YYYY-MM-DD'` strings; times are minutes since midnight.
-- `lib/calendar_views.dart`, `lib/pickers.dart`, `lib/body_map.dart`, `lib/muscles.dart`, `lib/watch_api.dart`, `lib/sketch.dart` (sketch notes: strokes, painter, drawing page) — feature pieces.
+- `lib/calendar_views.dart`, `lib/pickers.dart`, `lib/body_map.dart`, `lib/muscles.dart`, `lib/watch_api.dart`, `lib/countries.dart` (country → currency), `lib/receipt.dart` (receipt scan: camera, on-device text reading, picking out the total), `lib/sketch.dart` (sketch notes: strokes, painter, drawing page), `lib/update.dart` (the app's version, the check for a newer GitHub release, the sheet that offers it) — feature pieces.
+- `android/app/src/main/kotlin/.../UpNextWidget.kt` — the "Up next" home-screen widget, in Kotlin. It reads and writes `life.db` directly (no Dart runs), so a change to the `events`, `routines` or `day_offs` tables, to the category colours, or to the "now / next" rules in `_DayCard` must be repeated there. It cannot be previewed or tested without a phone.
 
 ## Rules
 

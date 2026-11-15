@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:personal_mobile_app/date.dart';
+import 'package:personal_mobile_app/receipt.dart';
 import 'package:personal_mobile_app/db.dart';
 import 'package:personal_mobile_app/main.dart';
 import 'package:personal_mobile_app/sketch.dart';
@@ -176,6 +177,24 @@ void main() {
     expect(rows, hasLength(1));
   });
 
+  testWidgets('scanning a receipt fills in the transaction', (tester) async {
+    final real = readReceiptText;
+    addTearDown(() => readReceiptText = real);
+    readReceiptText = ({required bool camera}) async => 'CORNER SHOP\n02/01/2026\nTea 4.50\nTOTAL 23.75';
+    await start(tester);
+    await openTab(tester, 'Wallet');
+    await tapText(tester, 'Add');
+    await tapText(tester, 'Scan receipt');
+
+    expect(tester.widget<TextField>(field(0)).controller!.text, '23.75');
+    expect(tester.widget<TextField>(field(1)).controller!.text, 'Corner Shop');
+    await tapText(tester, 'Save');
+    final row = (await tester.runAsync(() => appDb.query('SELECT * FROM transactions')))!.single;
+    expect(row['amount'], 23.75);
+    expect(row['kind'], 'expense');
+    expect(row['date'], '2026-01-02');
+  });
+
   testWidgets('a logged set appears in today\'s workout, and removing it can be undone', (tester) async {
     await start(tester);
     await openTab(tester, 'Body');
@@ -227,12 +246,19 @@ void main() {
     await tester.pump();
     await tester.tap(find.byIcon(Icons.undo));
     await tester.pump();
+    // The slider sets how thick the next line is.
+    await tester.drag(find.byKey(const Key('pen-width')), const Offset(200, 0));
+    await tester.pump();
+    await tester.drag(canvas, const Offset(40, -70));
+    await tester.pump();
     await tapText(tester, '‹ Done');
 
     expect(find.text('1 note'), findsOneWidget);
     expect(find.text('Floor plan'), findsOneWidget);
     var row = (await tester.runAsync(() => appDb.query('SELECT * FROM notes')))!.single;
-    expect(decodeSketch(row['sketch'] as String?), hasLength(1));
+    final strokes = decodeSketch(row['sketch'] as String?);
+    expect(strokes, hasLength(2));
+    expect(strokes[1].width, greaterThan(strokes[0].width));
 
     // Clearing the drawing but keeping the title keeps the note; it is still a sketch.
     await tapText(tester, 'Floor plan');
@@ -242,6 +268,43 @@ void main() {
     row = (await tester.runAsync(() => appDb.query('SELECT * FROM notes')))!.single;
     expect(decodeSketch(row['sketch'] as String?), isEmpty);
     expect(row['sketch'], isNotNull);
+  });
+
+  testWidgets('an undo message leaves by itself, or when something else is touched', (tester) async {
+    await tester.runAsync(() => appDb.insert("INSERT INTO notes (title, body, updated_at) VALUES ('Old', 'x', 1)"));
+    await start(tester);
+    await openTab(tester, 'Notes');
+
+    await tapText(tester, 'Old');
+    await tapText(tester, 'Delete');
+    expect(find.text('Note deleted'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    expect(find.text('Note deleted'), findsNothing);
+
+    await tester.runAsync(() => appDb.insert("INSERT INTO notes (title, body, updated_at) VALUES ('Older', 'x', 1)"));
+    await settle(tester);
+    await tapText(tester, 'Older');
+    await tapText(tester, 'Delete');
+    expect(find.text('Note deleted'), findsOneWidget);
+    await openTab(tester, 'Wallet');
+    expect(find.text('Note deleted'), findsNothing);
+    expect(await tester.runAsync(() => appDb.query('SELECT * FROM notes')), isEmpty);
+  });
+
+  testWidgets('choosing a country sets the currency', (tester) async {
+    await start(tester);
+    await tester.tap(find.byIcon(Icons.settings_outlined).hitTestable());
+    await settle(tester);
+    expect(find.text('Week starts on'), findsNothing);
+    await tapText(tester, 'Choose a country');
+    await tester.enterText(field(0), 'tunis');
+    await settle(tester);
+    await tapText(tester, 'Tunisia');
+
+    expect(appDb.setting('currency', r'$'), 'TND');
+    expect(find.text('Tunisia'), findsOneWidget);
+    expect(tester.widget<TextField>(field(0)).controller!.text, 'TND');
   });
 
   testWidgets('a colour theme chosen in settings recolours the app and is remembered', (tester) async {

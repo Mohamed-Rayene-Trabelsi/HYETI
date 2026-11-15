@@ -1,5 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- The Watch tab loads titles and ratings from AniList, TMDB and OMDb. -->
+    <!-- The Watch tab loads titles and ratings from AniList, TMDB and OMDb; the update check asks GitHub. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="HYETI"
@@ -27,6 +27,20 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- The "Up next" home-screen widget. -->
+        <receiver
+            android:name=".UpNextWidget"
+            android:exported="true"
+            android:label="@string/widget_up_next_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+                <action android:name="android.intent.action.TIME_SET"/>
+                <action android:name="android.intent.action.TIMEZONE_CHANGED"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_up_next_info"/>
+        </receiver>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

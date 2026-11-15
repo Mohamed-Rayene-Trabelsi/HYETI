@@ -1,10 +1,10 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../countries.dart';
 import '../db.dart';
 import '../theme.dart';
 import '../ui.dart';
-
-const appVersion = '1.0.0';
+import '../update.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -31,6 +31,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() => _erase = _Erase.done);
   }
 
+  void _chooseCountry() {
+    showSheet(
+      context,
+      title: 'Country',
+      builder: (sheet) => _CountryPicker(
+        selected: appDb.setting('country', ''),
+        onPick: (name, currency) async {
+          Navigator.pop(sheet);
+          _currency.text = currency;
+          await appDb.setSetting('country', name);
+          await appDb.setSetting('currency', currency);
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -39,6 +55,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         listenable: appDb,
         builder: (context, _) {
           final currency = appDb.setting('currency', r'$');
+          final country = appDb.setting('country', '');
           return Screen(
             title: 'Settings',
             subtitle: 'Everything is stored on this phone',
@@ -63,33 +80,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
               Section(
-                title: 'Calendar',
+                title: 'Country and units',
                 children: [
                   AppCard(
                     children: [
-                      const T('Week starts on', variant: TextVariant.label),
-                      Segmented<String>(
-                        value: appDb.setting('week_start', 'mon'),
-                        onChanged: (v) => appDb.setSetting('week_start', v),
-                        options: const {'mon': 'Monday', 'sun': 'Sunday'},
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              Section(
-                title: 'Units',
-                children: [
-                  AppCard(
-                    children: [
-                      const T('Gym weights', variant: TextVariant.label),
-                      Segmented<String>(
-                        value: appDb.setting('weight_unit', 'kg'),
-                        onChanged: (v) => appDb.setSetting('weight_unit', v),
-                        options: const {'kg': 'Kilograms', 'lb': 'Pounds'},
+                      const T('Country', variant: TextVariant.label),
+                      AppButton(
+                        country.isEmpty ? 'Choose a country' : country,
+                        kind: ButtonKind.soft,
+                        icon: Icons.public,
+                        onPressed: _chooseCountry,
                       ),
                       const T(
-                        'Changes the label only. Weights you already logged are not converted.',
+                        'Choosing a country sets the currency below; you can still type another.',
                         variant: TextVariant.small,
                         dim: true,
                       ),
@@ -117,6 +120,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               },
                             ),
                         ],
+                      ),
+                      const SizedBox(height: Spacing.xs),
+                      const T('Gym weights', variant: TextVariant.label),
+                      Segmented<String>(
+                        value: appDb.setting('weight_unit', 'kg'),
+                        onChanged: (v) => appDb.setSetting('weight_unit', v),
+                        options: const {'kg': 'Kilograms', 'lb': 'Pounds'},
+                      ),
+                      const T(
+                        'Changes the label only. Weights you already logged are not converted.',
+                        variant: TextVariant.small,
+                        dim: true,
                       ),
                     ],
                   ),
@@ -162,11 +177,121 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                 ],
               ),
-              const T('Version $appVersion', variant: TextVariant.small, dim: true, align: TextAlign.center),
+              const Section(
+                title: 'About',
+                children: [
+                  AppCard(children: [UpdateCheck()]),
+                ],
+              ),
             ],
           );
         },
       ),
+    );
+  }
+}
+
+/// The installed version, and a button that looks for a newer one.
+class UpdateCheck extends StatefulWidget {
+  const UpdateCheck({super.key});
+
+  @override
+  State<UpdateCheck> createState() => _UpdateCheckState();
+}
+
+enum _Check { idle, busy, latest, failed }
+
+class _UpdateCheckState extends State<UpdateCheck> {
+  _Check _state = _Check.idle;
+
+  Future<void> _check() async {
+    setState(() => _state = _Check.busy);
+    try {
+      final release = await fetchLatestRelease();
+      if (!mounted) return;
+      final newer = isNewer(release.version, appVersion);
+      setState(() => _state = newer ? _Check.idle : _Check.latest);
+      if (newer) showUpdateSheet(context, release);
+    } catch (_) {
+      if (mounted) setState(() => _state = _Check.failed);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return FormColumn(
+      children: [
+        const T('HYETI version $appVersion', variant: TextVariant.label),
+        if (_state == _Check.latest) T('This is the newest version.', color: c.success),
+        if (_state == _Check.failed) const T('Could not check. Is the phone online?', dim: true),
+        AppButton(
+          _state == _Check.busy ? 'Checking…' : 'Check for updates',
+          kind: ButtonKind.soft,
+          icon: Icons.system_update,
+          onPressed: _state == _Check.busy ? null : _check,
+        ),
+      ],
+    );
+  }
+}
+
+/// A searchable list of countries, each with the currency it brings.
+class _CountryPicker extends StatefulWidget {
+  const _CountryPicker({required this.selected, required this.onPick});
+
+  final String selected;
+  final void Function(String name, String currency) onPick;
+
+  @override
+  State<_CountryPicker> createState() => _CountryPickerState();
+}
+
+class _CountryPickerState extends State<_CountryPicker> {
+  final _search = TextEditingController();
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final words = _search.text.trim().toLowerCase();
+    final shown = [
+      for (final country in countries)
+        if (country.$1.toLowerCase().contains(words)) country,
+    ];
+    return FormColumn(
+      children: [
+        Field(
+          controller: _search,
+          icon: Icons.search,
+          hint: 'Search countries',
+          textInputAction: TextInputAction.search,
+          onChanged: (_) => setState(() {}),
+        ),
+        if (shown.isEmpty) const T('No country by that name. You can type the currency in settings.', dim: true),
+        Column(
+          children: [
+            for (final (i, (name, currency)) in shown.indexed)
+              ListRow(
+                divider: i > 0,
+                onTap: () {
+                  tick();
+                  widget.onPick(name, currency);
+                },
+                children: [
+                  Expanded(child: T(name, maxLines: 1)),
+                  T(currency, variant: TextVariant.label, dim: true),
+                  if (name == widget.selected) Icon(Icons.check, size: 18, color: c.accent),
+                ],
+              ),
+          ],
+        ),
+      ],
     );
   }
 }

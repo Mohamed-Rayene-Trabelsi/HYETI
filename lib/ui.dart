@@ -188,6 +188,9 @@ class Screen extends StatelessWidget {
     this.fabLabel,
     this.fabIcon = Icons.add,
     this.onFab,
+    this.secondFabLabel,
+    this.secondFabIcon = Icons.add,
+    this.onSecondFab,
     this.onBack,
     required this.children,
   });
@@ -202,6 +205,11 @@ class Screen extends StatelessWidget {
   final String? fabLabel;
   final IconData fabIcon;
   final VoidCallback? onFab;
+
+  /// A quieter second action, to the left of the main one.
+  final String? secondFabLabel;
+  final IconData secondFabIcon;
+  final VoidCallback? onSecondFab;
 
   /// Set on pushed pages: shows a back arrow.
   final VoidCallback? onBack;
@@ -252,7 +260,14 @@ class Screen extends StatelessWidget {
           Positioned(
             right: Spacing.lg,
             bottom: Spacing.lg,
-            child: _Fab(label: fabLabel!, icon: fabIcon, onPressed: onFab!),
+            child: Row(
+              spacing: Spacing.sm,
+              children: [
+                if (secondFabLabel != null && onSecondFab != null)
+                  _Fab(label: secondFabLabel!, icon: secondFabIcon, onPressed: onSecondFab!, quiet: true),
+                _Fab(label: fabLabel!, icon: fabIcon, onPressed: onFab!),
+              ],
+            ),
           ),
       ],
     );
@@ -260,24 +275,28 @@ class Screen extends StatelessWidget {
 }
 
 class _Fab extends StatelessWidget {
-  const _Fab({required this.label, required this.icon, required this.onPressed});
+  const _Fab({required this.label, required this.icon, required this.onPressed, this.quiet = false});
 
   final String label;
   final IconData icon;
   final VoidCallback onPressed;
 
+  /// Drawn in the card colour rather than the accent.
+  final bool quiet;
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final fg = quiet ? c.text : c.onAccent;
     return Semantics(
       button: true,
       label: label,
       excludeSemantics: true,
       child: Material(
-        color: c.accent,
+        color: quiet ? c.surfaceAlt : c.accent,
         elevation: 3,
         shadowColor: const Color(0xFF000000),
-        shape: buttonShape,
+        shape: quiet ? buttonShape.copyWith(side: BorderSide(color: c.border, width: 0.5)) : buttonShape,
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onPressed,
@@ -289,8 +308,8 @@ class _Fab extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 spacing: Spacing.sm,
                 children: [
-                  Icon(icon, color: c.onAccent, size: 22),
-                  T(label, variant: TextVariant.label, color: c.onAccent, style: const TextStyle(fontSize: 15)),
+                  Icon(icon, color: fg, size: 22),
+                  T(label, variant: TextVariant.label, color: fg, style: const TextStyle(fontSize: 15)),
                 ],
               ),
             ),
@@ -815,7 +834,51 @@ class FormColumn extends StatelessWidget {
 /// Lets any screen or sheet show a message at the bottom of the app.
 final messengerKey = GlobalKey<ScaffoldMessengerState>();
 
-/// A short message with an Undo button, shown above the floating action.
+/// The text of an undo message; it also knows where on screen the message is.
+class _UndoText extends StatefulWidget {
+  const _UndoText(this.message);
+
+  final String message;
+
+  @override
+  State<_UndoText> createState() => _UndoTextState();
+}
+
+class _UndoTextState extends State<_UndoText> {
+  static final showing = <_UndoTextState>{};
+
+  @override
+  void initState() {
+    super.initState();
+    showing.add(this);
+  }
+
+  @override
+  void dispose() {
+    showing.remove(this);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Text(widget.message, maxLines: 2, overflow: TextOverflow.ellipsis);
+}
+
+/// Takes the undo message away. Given where the screen was touched, it stays if the touch was on the message.
+void dismissUndo([Offset? touch]) {
+  if (_UndoTextState.showing.isEmpty) return;
+  if (touch != null) {
+    for (final text in _UndoTextState.showing) {
+      final box = text.context.findRenderObject();
+      if (box is! RenderBox || !box.attached) continue;
+      final top = box.localToGlobal(Offset.zero).dy;
+      if (touch.dy > top - 28 && touch.dy < top + box.size.height + 28) return;
+    }
+  }
+  messengerKey.currentState?.hideCurrentSnackBar();
+}
+
+/// A short message with an Undo button, shown above the floating action. It leaves by itself after a few
+/// seconds, or as soon as something else on screen is touched.
 void showUndo(String message, Future<void> Function() undo) {
   final messenger = messengerKey.currentState;
   if (messenger == null) return;
@@ -823,9 +886,11 @@ void showUndo(String message, Future<void> Function() undo) {
     ..hideCurrentSnackBar()
     ..showSnackBar(
       SnackBar(
-        content: Text(message, maxLines: 2, overflow: TextOverflow.ellipsis),
+        content: _UndoText(message),
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 4),
+        // Without this a message that has a button never times out.
+        persist: false,
         margin: const EdgeInsets.fromLTRB(Spacing.lg, 0, Spacing.lg, 84),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.md)),
         action: SnackBarAction(label: 'Undo', onPressed: undo),

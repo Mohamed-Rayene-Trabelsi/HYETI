@@ -5,6 +5,7 @@ import 'package:material_ui/material_ui.dart';
 import '../date.dart';
 import '../db.dart';
 import '../pickers.dart';
+import '../receipt.dart';
 import '../theme.dart';
 import '../ui.dart';
 
@@ -48,8 +49,8 @@ class _WalletScreenState extends State<WalletScreen> with Live {
   Map<String, double> _spentByDay = {};
   List<Rec> _recent = [];
 
-  /// The budget week follows the "week starts on" setting.
-  String get _weekFrom => startOfWeek(todayKey(), appDb.setting('week_start', 'mon'));
+  /// The budget week runs Monday to Sunday.
+  String get _weekFrom => weekStart(todayKey());
 
   @override
   Future<void> load() async {
@@ -424,6 +425,10 @@ class _TxFormState extends State<_TxForm> {
   late String _date = widget.initial?['date'] as String? ?? todayKey();
   String _error = '';
 
+  /// What the last receipt scan came to, shown under the scan buttons.
+  String _scanNote = '';
+  bool _scanning = false;
+
   @override
   void dispose() {
     _amount.dispose();
@@ -437,10 +442,68 @@ class _TxFormState extends State<_TxForm> {
     widget.onSave(_kind, n, _label.text.trim(), _date);
   }
 
+  /// Reads a receipt from the camera or a saved photo and fills in what it can.
+  Future<void> _scan({required bool camera}) async {
+    if (_scanning) return;
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() => _scanning = true);
+    String note;
+    try {
+      final text = await readReceiptText(camera: camera);
+      if (!mounted) return;
+      if (text == null) {
+        note = '';
+      } else {
+        final receipt = parseReceipt(text, currency: appDb.setting('currency', r'$'));
+        if (receipt.amount != null) {
+          // Up to three decimals, for currencies that have them; no trailing zeros.
+          _amount.text = receipt.amount!.toStringAsFixed(3).replaceFirst(RegExp(r'\.?0+$'), '');
+        }
+        if (receipt.label.isNotEmpty) _label.text = receipt.label;
+        if (receipt.date != null) _date = receipt.date!;
+        _kind = 'expense';
+        note = receipt.amount != null
+            ? 'Filled in from the receipt. Check it before saving.'
+            : 'No total could be read from that picture. Type the amount in.';
+      }
+    } catch (_) {
+      if (!mounted) return;
+      note = 'The picture could not be read. Try again in better light.';
+    }
+    setState(() {
+      _scanning = false;
+      _scanNote = note;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return FormColumn(
       children: [
+        if (widget.initial == null) ...[
+          Row(
+            spacing: Spacing.sm,
+            children: [
+              Expanded(
+                child: AppButton(
+                  _scanning ? 'Reading…' : 'Scan receipt',
+                  kind: ButtonKind.soft,
+                  icon: Icons.document_scanner_outlined,
+                  onPressed: _scanning ? null : () => _scan(camera: true),
+                ),
+              ),
+              Expanded(
+                child: AppButton(
+                  'From a photo',
+                  kind: ButtonKind.soft,
+                  icon: Icons.photo_library_outlined,
+                  onPressed: _scanning ? null : () => _scan(camera: false),
+                ),
+              ),
+            ],
+          ),
+          if (_scanNote.isNotEmpty) T(_scanNote, variant: TextVariant.small, dim: true),
+        ],
         Segmented<String>(value: _kind, onChanged: (v) => setState(() => _kind = v), options: _kindLabel),
         Field(
           label: 'Amount',

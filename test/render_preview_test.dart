@@ -12,6 +12,7 @@ import 'package:personal_mobile_app/date.dart';
 import 'package:personal_mobile_app/db.dart';
 import 'package:personal_mobile_app/main.dart';
 import 'package:personal_mobile_app/sketch.dart';
+import 'package:personal_mobile_app/update.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Real fonts from the Flutter SDK, so text is readable in the pictures.
@@ -148,6 +149,14 @@ void main() {
     await settle(tester);
     await snap(tester, 'body_back');
 
+    await openTab(tester, 'Wallet');
+    await tester.tap(find.text('Add').hitTestable());
+    await settle(tester);
+    await snap(tester, 'wallet_add');
+    await tester.tap(find.text('Close'));
+    await settle(tester);
+    await openTab(tester, 'Body');
+
     await tester.tap(find.text('Bench press').hitTestable().first);
     await settle(tester);
     await snap(tester, 'body_log_set');
@@ -166,5 +175,12 @@ void main() {
     await tester.tap(find.byIcon(Icons.arrow_back));
     await settle(tester);
     await snap(tester, 'body_clover');
+
+    showUpdateSheet(
+      tester.element(find.byType(NavigationBar)),
+      const Release(version: '9.9.9', notes: 'Faster calendar.\nNew themes.', url: 'https://example.test/HYETI.apk'),
+    );
+    await settle(tester);
+    await snap(tester, 'update_sheet');
   });
 }
