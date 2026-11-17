@@ -110,6 +110,121 @@ void main() {
     expect(seen, hasLength(2));
   });
 
+  testWidgets('typing searches by itself, once the typing pauses', (tester) async {
+    final seen = fakeAnilist(
+      (v) => anilistPage([anime(1, title: v['search'] == null ? 'Trending' : 'Death Note')], more: false),
+    );
+    await start(tester);
+    await tapText(tester, 'Anime');
+    expect(seen, hasLength(1));
+    expect(find.text('Search'), findsNothing);
+
+    await tester.enterText(field(0), 'dea');
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.enterText(field(0), 'death');
+    await tester.pump(const Duration(milliseconds: 200));
+    // Still typing: nothing has been asked yet.
+    expect(seen, hasLength(1));
+
+    await tester.pump(const Duration(milliseconds: 300));
+    await settle(tester);
+    expect(seen, hasLength(2));
+    expect(seen.last['search'], 'death');
+    expect(find.text('Death Note'), findsOneWidget);
+
+    await tapText(tester, 'Clear search');
+    expect(seen.last.containsKey('search'), isFalse);
+    expect(find.text('Trending'), findsOneWidget);
+  });
+
+  testWidgets('movies and series sit together under Shows', (tester) async {
+    final paths = <String>[];
+    httpClient = MockClient((request) async {
+      paths.add(request.url.path);
+      return http.Response(jsonEncode({'results': [], 'total_pages': 1}), 200);
+    });
+    await tester.runAsync(() => appDb.setSetting('tmdb_key', 'abc'));
+    await start(tester);
+    expect(find.text('Movies'), findsNothing);
+
+    await tapText(tester, 'Shows');
+    expect(paths.last, '/3/trending/movie/week');
+    await tapText(tester, 'Series');
+    expect(paths.last, '/3/trending/tv/week');
+  });
+
+  testWidgets('football lists upcoming matches, narrows them as a team is typed, and saves one', (tester) async {
+    Map<String, Object?> match(int id, String home, String away, {String state = 'pre'}) => {
+      'id': '$id',
+      'date': '2999-03-0${id}T12:00Z',
+      'competitions': [
+        {
+          'status': {
+            'type': {'state': state},
+          },
+          'competitors': [
+            {
+              'homeAway': 'away',
+              'team': {'displayName': away},
+            },
+            {
+              'homeAway': 'home',
+              'team': {'displayName': home},
+            },
+          ],
+        },
+      ],
+    };
+    final leagues = <String>[];
+    httpClient = MockClient((request) async {
+      final league = request.url.pathSegments[5];
+      leagues.add(league);
+      // One competition being down does not hide the rest.
+      if (league == 'ita.1') return http.Response('', 500);
+      return http.Response(
+        jsonEncode({
+          'events': switch (league) {
+            'eng.1' => [match(2, 'Arsenal', 'Chelsea'), match(3, 'Leeds', 'Everton', state: 'post')],
+            'esp.1' => [match(1, 'Barcelona', 'Real Madrid')],
+            _ => [],
+          },
+        }),
+        200,
+        headers: {'content-type': 'application/json; charset=utf-8'},
+      );
+    });
+    await start(tester);
+    await tapText(tester, 'Football');
+
+    expect(leagues.toSet(), footballLeagues.keys.toSet());
+    // Soonest first, and a match already played is left out.
+    expect(
+      tester.getTopLeft(find.text('Barcelona vs Real Madrid')).dy,
+      lessThan(tester.getTopLeft(find.text('Arsenal vs Chelsea')).dy),
+    );
+    expect(find.text('Leeds vs Everton'), findsNothing);
+
+    leagues.clear();
+    await tester.enterText(field(0), 'chel');
+    await tester.pump(const Duration(seconds: 1));
+    await settle(tester);
+    expect(find.text('Arsenal vs Chelsea'), findsOneWidget);
+    expect(find.text('Barcelona vs Real Madrid'), findsNothing);
+    expect(leagues, isEmpty);
+
+    await tapText(tester, 'Save');
+    final saved = (await tester.runAsync(() => appDb.query('SELECT * FROM watch_items')))!.single;
+    expect(saved['kind'], 'match');
+    expect(saved['ext_id'], 'espn:2');
+    expect(saved['detail'], startsWith('Premier League · '));
+
+    await tapText(tester, 'Clear search');
+    await tapText(tester, 'La Liga');
+    expect(leagues, ['esp.1']);
+    expect(find.text('Arsenal vs Chelsea'), findsNothing);
+    expect(find.text('Barcelona vs Real Madrid'), findsOneWidget);
+  });
+
   testWidgets('a title cannot be typed in twice', (tester) async {
     await start(tester);
     for (final title in ['Dune', 'dune!']) {

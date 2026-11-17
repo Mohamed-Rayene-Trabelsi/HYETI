@@ -3,16 +3,20 @@
 //
 // It is a drawing tool, not a check: without --update-goldens it does nothing, so a small rendering
 // difference between machines can never fail the test suite.
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:personal_mobile_app/date.dart';
 import 'package:personal_mobile_app/db.dart';
 import 'package:personal_mobile_app/main.dart';
 import 'package:personal_mobile_app/sketch.dart';
 import 'package:personal_mobile_app/update.dart';
+import 'package:personal_mobile_app/watch_api.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Real fonts from the Flutter SDK, so text is readable in the pictures.
@@ -49,6 +53,7 @@ Future<void> snap(WidgetTester tester, String name) =>
 Future<void> seed() async {
   final today = todayKey();
   await appDb.setSetting('theme', 'dark');
+  await appDb.setSetting('tmdb_key', 'preview');
   for (final (title, category, days, start, end) in [
     ('Deep work', 'work', '0,1,2,3,4,5,6', 540, 660),
     ('Lunch', 'food', '0,1,2,3,4,5,6', 780, 825),
@@ -96,6 +101,65 @@ Future<void> seed() async {
   }
 }
 
+/// Stands in for the Watch tab's online sources: a few movies from TMDB and a few fixtures from ESPN.
+void fakeWatchServices() {
+  final soon = DateTime.now().toUtc().add(const Duration(days: 3));
+  String kickOff(int hour) => '${toKey(soon)}T${hour.toString().padLeft(2, '0')}:00Z';
+  Map<String, Object?> match(int id, int hour, String home, String away) => {
+    'id': '$id',
+    'date': kickOff(hour),
+    'competitions': [
+      {
+        'status': {
+          'type': {'state': 'pre'},
+        },
+        'competitors': [
+          {
+            'homeAway': 'home',
+            'team': {'displayName': home},
+          },
+          {
+            'homeAway': 'away',
+            'team': {'displayName': away},
+          },
+        ],
+      },
+    ],
+  };
+  httpClient = MockClient((request) async {
+    final Object body;
+    if (request.url.host == 'api.themoviedb.org') {
+      body = {
+        'total_pages': 1,
+        'results': [
+          for (final (id, title, score) in [
+            (1, 'The Long Road', 7.9),
+            (2, 'Night Harbour', 7.1),
+            (3, 'Paper Kites', 6.6),
+          ])
+            {
+              'id': id,
+              'title': title,
+              'release_date': addDays(todayKey(), -20),
+              'vote_count': 900,
+              'vote_average': score,
+            },
+        ],
+      };
+    } else {
+      body = {
+        'events': switch (request.url.pathSegments[5]) {
+          'uefa.champions' => [match(1, 19, 'Real Madrid', 'Manchester City'), match(2, 19, 'Inter Milan', 'Arsenal')],
+          'eng.1' => [match(3, 12, 'Liverpool', 'Chelsea'), match(4, 15, 'Newcastle United', 'Tottenham Hotspur')],
+          'esp.1' => [match(5, 14, 'Barcelona', 'Atletico Madrid')],
+          _ => [],
+        },
+      };
+    }
+    return http.Response(jsonEncode(body), 200, headers: {'content-type': 'application/json; charset=utf-8'});
+  });
+}
+
 void main() {
   if (!autoUpdateGoldenFiles) return;
 
@@ -114,6 +178,7 @@ void main() {
     addTearDown(tester.view.reset);
 
     await tester.runAsync(seed);
+    fakeWatchServices();
 
     await tester.pumpWidget(const LifeApp());
     await settle(tester);
@@ -162,6 +227,17 @@ void main() {
     await snap(tester, 'body_log_set');
     await tester.tap(find.text('Close'));
     await settle(tester);
+
+    await openTab(tester, 'Watch');
+    await tester.tap(find.text('Shows'));
+    await settle(tester);
+    await snap(tester, 'watch_shows');
+    await tester.tap(find.text('Football').hitTestable());
+    await settle(tester);
+    await tester.tap(find.text('Save').hitTestable().first);
+    await settle(tester);
+    await snap(tester, 'watch_football');
+    await openTab(tester, 'Body');
 
     await tester.tap(find.byIcon(Icons.settings_outlined).hitTestable());
     await settle(tester);

@@ -18,7 +18,7 @@ A personal planner for Android. Calendar, gym and food log, wallet, watchlist an
 - **Calendar.** Set up a weekly routine once and it fills in every day. Day, week and month views. Blocks are added from one sheet: pick one of sixteen activities, a start time and a one-tap length. If you're running late you can push the rest of the day back, and you can mark days off.
 - **Body.** A muscle map that shows what you trained and what has rested long enough, with exercise suggestions and set logging. There is a countdown for your gym membership, and a nutrition side with a calorie and macro plan and a food log.
 - **Wallet.** Income, spending and savings, a weekly budget and a savings goal. Photograph a receipt and the amount, shop and date are filled in for you; the picture is read on the phone and never leaves it.
-- **Watch.** A watchlist for movies, series and anime, with what's popular and what's coming out. A watch night can go straight onto the calendar.
+- **Watch.** A watchlist for shows (movies and series), anime and football, with what's popular, what's coming out and the next matches of the big competitions. Search runs as you type. A watch night or a match can go straight onto the calendar.
 - **Notes.** Written notes and finger-drawn sketches, which you can search and pin. Sketches have six pen colours, three pen sizes, an eraser, and undo and redo.
 - **Settings.** Light or dark, eight colour themes (one of them yours to mix), your country and its currency, units, and a button that erases everything.
 
@@ -33,7 +33,7 @@ The APK is built for 64-bit ARM, which is almost every Android phone from 2017 o
 
 ### Movies and series need a key
 
-Anime works out of the box. For movies and series, get a free [TMDB](https://www.themoviedb.org/settings/api) key, and for IMDb ratings a free [OMDb](https://www.omdbapi.com/apikey.aspx) key, then paste them in under Settings. The keys stay on your phone.
+Anime and football work out of the box. For movies and series, get a free [TMDB](https://www.themoviedb.org/settings/api) key, and for IMDb ratings a free [OMDb](https://www.omdbapi.com/apikey.aspx) key, then paste them in under Settings. The keys stay on your phone.
 
 ## Build it yourself
 
@@ -76,7 +76,7 @@ One catch: the APK is signed with the debug key of the computer that built it. A
 | `test/` | Unit and widget tests. `test/preview/` has screenshots drawn by `render_preview_test.dart` |
 | `android/` | The Android project Flutter builds |
 
-Data lives in SQLite on the phone. The only network calls are the Watch tab's lookups to AniList, TMDB and OMDb, and a check on start for a newer release on GitHub.
+Data lives in SQLite on the phone. The only network calls are the Watch tab's lookups to AniList, TMDB, OMDb and ESPN (football fixtures), and a check on start for a newer release on GitHub.
 
 ## Licence
 

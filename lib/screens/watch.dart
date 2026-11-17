@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:material_ui/material_ui.dart';
@@ -10,8 +11,13 @@ import '../ui.dart';
 import '../watch_api.dart';
 import 'settings.dart';
 
-const _kindLabel = {'anime': 'Anime', 'movie': 'Movie', 'series': 'Series'};
-const _kindIcon = {'anime': Icons.auto_awesome, 'movie': Icons.movie_outlined, 'series': Icons.tv};
+const _kindLabel = {'anime': 'Anime', 'movie': 'Movie', 'series': 'Series', 'match': 'Football'};
+const _kindIcon = {
+  'anime': Icons.auto_awesome,
+  'movie': Icons.movie_outlined,
+  'series': Icons.tv,
+  'match': Icons.sports_soccer,
+};
 
 final _ratingPart = RegExp(r'^(IMDb|TMDB|AniList) ');
 
@@ -23,8 +29,11 @@ class WatchScreen extends StatefulWidget {
 }
 
 class _WatchScreenState extends State<WatchScreen> with Live {
-  /// 'mine', or the kind being browsed.
+  /// 'mine', 'shows' (movies and series), 'anime' or 'match'.
   String _tab = 'mine';
+
+  /// Which half of Shows is open: 'movie' or 'series'.
+  String _showKind = 'movie';
   List<Rec> _items = [];
 
   @override
@@ -90,7 +99,7 @@ class _WatchScreenState extends State<WatchScreen> with Live {
     final airTime = RegExp(r'(\d\d):(\d\d)').firstMatch(item['detail'] as String);
     final start = math.min(airTime == null ? 20 * 60 : int.parse(airTime[1]!) * 60 + int.parse(airTime[2]!), 1380);
     final length = switch (item['kind']) {
-      'movie' => 120,
+      'movie' || 'match' => 120,
       'series' => 60,
       _ => 30,
     };
@@ -168,8 +177,11 @@ class _WatchScreenState extends State<WatchScreen> with Live {
 
   /// What a saved entry is called on "My list". Entries that share it are drawn as one card, so a show
   /// saved from both Series and Anime sits in one section instead of two. Nothing is merged in storage.
-  static String _listKey(Rec item) =>
-      watchTitleKey(item['kind'] == 'movie' ? 'movie' : 'show', item['title'] as String);
+  static String _listKey(Rec item) => watchTitleKey(switch (item['kind']) {
+    'movie' => 'movie',
+    'match' => 'match',
+    _ => 'show',
+  }, item['title'] as String);
 
   static bool _isUpcoming(Rec item, String today) => ((item['release_date'] as String?) ?? '').compareTo(today) >= 0;
 
@@ -206,6 +218,7 @@ class _WatchScreenState extends State<WatchScreen> with Live {
     final tmdbKey = appDb.setting('tmdb_key', '');
     final omdbKey = appDb.setting('omdb_key', '');
     final mine = _tab == 'mine';
+    final kind = _tab == 'shows' ? _showKind : _tab;
     final today = todayKey();
     // One card per title. A title with any entry still ahead goes under "Coming up", led by that entry;
     // otherwise it goes under "Out now or undated". It is never in both.
@@ -222,7 +235,7 @@ class _WatchScreenState extends State<WatchScreen> with Live {
 
     return Screen(
       title: 'Watchlist',
-      subtitle: titles.isEmpty ? 'Movies, series and anime' : '${titles.length} saved · ${upcoming.length} coming up',
+      subtitle: titles.isEmpty ? 'Shows, anime and football' : '${titles.length} saved · ${upcoming.length} coming up',
       // Once a key is saved nothing here asks for one again; both stay editable in Settings.
       actions: [
         if (tmdbKey.isEmpty && omdbKey.isEmpty)
@@ -234,14 +247,14 @@ class _WatchScreenState extends State<WatchScreen> with Live {
         Segmented<String>(
           value: _tab,
           onChanged: (v) => setState(() => _tab = v),
-          options: const {'mine': 'My list', 'movie': 'Movies', 'series': 'Series', 'anime': 'Anime'},
+          options: const {'mine': 'My list', 'shows': 'Shows', 'anime': 'Anime', 'match': 'Football'},
         ),
         if (mine) ...[
           if (ready && _items.isEmpty)
             const Empty(
               icon: Icons.bookmark_add_outlined,
               title: 'Your list is empty',
-              hint: 'Open Movies, Series or Anime to see what is hot and save what you want to watch.',
+              hint: 'Open Shows, Anime or Football to see what is on and save what you want to watch.',
             ),
           if (upcoming.isNotEmpty)
             Section(title: 'Coming up', children: [for (final copies in upcoming) _itemCard(copies)]),
@@ -250,7 +263,7 @@ class _WatchScreenState extends State<WatchScreen> with Live {
               title: upcoming.isEmpty ? 'Saved' : 'Out now or undated',
               children: [for (final copies in rest) _itemCard(copies)],
             ),
-        ] else if (_tab != 'anime' && tmdbKey.isEmpty)
+        ] else if (_tab == 'shows' && tmdbKey.isEmpty)
           Empty(
             icon: Icons.key_outlined,
             title: omdbKey.isEmpty ? 'A free key is needed' : 'A TMDB key is needed',
@@ -261,9 +274,15 @@ class _WatchScreenState extends State<WatchScreen> with Live {
             action: AppButton(omdbKey.isEmpty ? 'Add a key' : 'Add TMDB key', onPressed: _openKeys),
           )
         else ...[
+          if (_tab == 'shows')
+            Segmented<String>(
+              value: _showKind,
+              onChanged: (v) => setState(() => _showKind = v),
+              options: const {'movie': 'Movies', 'series': 'Series'},
+            ),
           _Browser(
-            key: ValueKey(_tab),
-            kind: _tab,
+            key: ValueKey(kind),
+            kind: kind,
             tmdbKey: tmdbKey,
             omdbKey: omdbKey,
             isSaved: (f) => _savedAs(f) != null,
@@ -288,7 +307,7 @@ class _WatchScreenState extends State<WatchScreen> with Live {
     final when = release == null
         ? 'No date'
         : !upcoming
-        ? 'Out now'
+        ? (kind == 'match' ? 'Played' : 'Out now')
         : days <= 1
         ? relativeDay(release)
         : days < 7
@@ -366,6 +385,18 @@ class _Poster extends StatelessWidget {
         height: 80,
         child: url == null || url!.isEmpty
             ? placeholder
+            : kind == 'match'
+            // A club crest is shown whole on the card's tint, where a poster fills the frame.
+            ? Container(
+                color: c.surfaceAlt,
+                padding: const EdgeInsets.all(Spacing.sm),
+                child: Image.network(
+                  url!,
+                  fit: BoxFit.contain,
+                  cacheWidth: 162,
+                  errorBuilder: (_, _, _) => placeholder,
+                ),
+              )
             : Image.network(
                 url!,
                 fit: BoxFit.cover,
@@ -410,6 +441,12 @@ class _BrowserState extends State<_Browser> {
   String _search = '';
   String _mode = 'hot';
 
+  /// The football competition being shown; '' for all of them.
+  String _league = '';
+
+  /// Runs the search a moment after the last keystroke, so typing a word asks once rather than per letter.
+  Timer? _typing;
+
   // Each request gets a number; an answer to anything but the latest is dropped.
   int _request = 0;
   bool _loading = true;
@@ -451,6 +488,7 @@ class _BrowserState extends State<_Browser> {
   @override
   void dispose() {
     _request = -1;
+    _typing?.cancel();
     _scroll?.removeListener(_onScroll);
     _text.dispose();
     super.dispose();
@@ -474,16 +512,18 @@ class _BrowserState extends State<_Browser> {
       if (!next) _results = [];
     });
     try {
-      final found = widget.kind == 'anime'
-          ? await fetchAnime(_search, page: page)
-          : await fetchTitles(
-              widget.kind,
-              _mode,
-              _search,
-              tmdbKey: widget.tmdbKey,
-              omdbKey: widget.omdbKey,
-              page: page,
-            );
+      final found = switch (widget.kind) {
+        'anime' => await fetchAnime(_search, page: page),
+        'match' => await fetchMatches(_league),
+        _ => await fetchTitles(
+          widget.kind,
+          _mode,
+          _search,
+          tmdbKey: widget.tmdbKey,
+          omdbKey: widget.omdbKey,
+          page: page,
+        ),
+      };
       if (!mounted || request != _request) return;
       // Rankings shift between requests, so a later page can repeat a title already shown.
       final shown = {for (final f in _results) f.extId};
@@ -505,9 +545,25 @@ class _BrowserState extends State<_Browser> {
     }
   }
 
+  /// Called on every keystroke: the search follows the typing, with no button to press.
+  void _onTyped(String value) {
+    setState(() {});
+    // Matches are few and all loaded already, so typing only narrows what is shown.
+    if (widget.kind == 'match') return;
+    _typing?.cancel();
+    _typing = Timer(const Duration(milliseconds: 400), () => _setSearch(value.trim()));
+  }
+
   void _setSearch(String value) {
-    FocusManager.instance.primaryFocus?.unfocus();
+    _typing?.cancel();
+    if (!mounted || value == _search) return;
     _search = value;
+    _fetch();
+  }
+
+  void _setLeague(String league) {
+    if (_league == league) return;
+    _league = league;
     _fetch();
   }
 
@@ -535,10 +591,34 @@ class _BrowserState extends State<_Browser> {
     final plural = switch (kind) {
       'movie' => 'movies',
       'series' => 'series',
+      'match' => 'teams',
       _ => 'anime',
     };
     final typed = _text.text.trim();
     final thisYear = todayKey().substring(0, 4);
+    final results = kind == 'match' && typed.isNotEmpty
+        ? _results.where((f) => f.title.toLowerCase().contains(typed.toLowerCase())).toList()
+        : _results;
+    final chips = [
+      if (kind == 'match') ...[
+        AppChip('All', selected: _league.isEmpty, onPressed: () => _setLeague('')),
+        for (final league in footballLeagues.entries)
+          AppChip(league.value, selected: _league == league.key, onPressed: () => _setLeague(league.key)),
+      ] else if (kind != 'anime' && typed.isEmpty) ...[
+        AppChip('Hot this week', selected: _mode == 'hot', onPressed: () => _setMode('hot')),
+        AppChip('Coming soon', selected: _mode == 'upcoming', onPressed: () => _setMode('upcoming')),
+      ],
+      if (typed.isNotEmpty)
+        AppChip(
+          'Clear search',
+          icon: Icons.close,
+          onPressed: () {
+            _text.clear();
+            setState(() {});
+            _setSearch('');
+          },
+        ),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -549,38 +629,30 @@ class _BrowserState extends State<_Browser> {
           icon: Icons.search,
           hint: 'Search $plural',
           textInputAction: TextInputAction.search,
-          onChanged: (_) => setState(() {}),
-          onSubmitted: (v) => _setSearch(v.trim()),
+          onChanged: _onTyped,
+          // The keyboard's search key only puts the keyboard away; the results are already there or on their way.
+          onSubmitted: (v) {
+            FocusManager.instance.primaryFocus?.unfocus();
+            if (kind != 'match') _setSearch(v.trim());
+          },
         ),
-        if ((kind != 'anime' && _search.isEmpty) || _search.isNotEmpty || typed.isNotEmpty)
-          Wrap(
-            spacing: Spacing.sm,
-            runSpacing: Spacing.sm,
-            children: [
-              if (kind != 'anime' && _search.isEmpty) ...[
-                AppChip('Hot this week', selected: _mode == 'hot', onPressed: () => _setMode('hot')),
-                AppChip('Coming soon', selected: _mode == 'upcoming', onPressed: () => _setMode('upcoming')),
-              ],
-              if (_search.isNotEmpty)
-                AppChip(
-                  'Clear search',
-                  icon: Icons.close,
-                  onPressed: () {
-                    _text.clear();
-                    _setSearch('');
-                  },
-                )
-              else if (typed.isNotEmpty)
-                AppChip('Search', icon: Icons.search, selected: true, onPressed: () => _setSearch(typed)),
-            ],
-          ),
-        if (!_loading && _error.isEmpty && _results.isEmpty)
-          const Empty(
-            icon: Icons.search_off,
-            title: 'Nothing found',
-            hint: 'Check the spelling, or try the original title.',
-          ),
-        for (final f in _results)
+        if (chips.isNotEmpty) Wrap(spacing: Spacing.sm, runSpacing: Spacing.sm, children: chips),
+        if (!_loading && _error.isEmpty && results.isEmpty)
+          if (kind == 'match' && typed.isEmpty)
+            const Empty(
+              icon: Icons.sports_soccer,
+              title: 'No matches coming up',
+              hint: 'The next round shows here once its fixtures are set.',
+            )
+          else
+            Empty(
+              icon: Icons.search_off,
+              title: 'Nothing found',
+              hint: kind == 'match'
+                  ? 'No upcoming match has a team by that name.'
+                  : 'Check the spelling, or try the original title.',
+            ),
+        for (final f in results)
           AppCard(
             children: [
               Row(
@@ -640,7 +712,11 @@ class _BrowserState extends State<_Browser> {
         if (_error.isNotEmpty)
           Empty(
             icon: Icons.cloud_off_outlined,
-            title: _results.isEmpty ? 'Could not load titles' : 'Could not load more',
+            title: _results.isNotEmpty
+                ? 'Could not load more'
+                : kind == 'match'
+                ? 'Could not load matches'
+                : 'Could not load titles',
             hint: _error,
             action: _badKey
                 ? AppButton('Check my keys', kind: ButtonKind.soft, onPressed: widget.onFixKeys)
@@ -653,6 +729,8 @@ class _BrowserState extends State<_Browser> {
         T(
           kind == 'anime'
               ? 'Data from AniList'
+              : kind == 'match'
+              ? 'Fixtures from ESPN'
               : 'Lists from TMDB, IMDb ratings via OMDb. This app uses the TMDB API but is not endorsed or '
                     'certified by TMDB.',
           variant: TextVariant.small,
@@ -708,10 +786,15 @@ class _ManualFormState extends State<_ManualForm> {
         Segmented<String>(
           value: _kind,
           onChanged: (v) => setState(() => _kind = v),
-          options: const {'movie': 'Movie', 'series': 'Series', 'anime': 'Anime'},
+          options: const {'movie': 'Movie', 'series': 'Series', 'anime': 'Anime', 'match': 'Match'},
         ),
-        Field(label: 'Title', controller: _title, hint: 'Title', autofocus: true),
-        DateField(label: 'Release date', value: _date, onChanged: (d) => setState(() => _date = d), optional: true),
+        Field(label: 'Title', controller: _title, hint: _kind == 'match' ? 'Home vs Away' : 'Title', autofocus: true),
+        DateField(
+          label: _kind == 'match' ? 'Match day' : 'Release date',
+          value: _date,
+          onChanged: (d) => setState(() => _date = d),
+          optional: true,
+        ),
         if (_error.isNotEmpty) T(_error, color: context.colors.danger),
         AppButton('Add to my list', onPressed: _busy ? null : _save),
       ],

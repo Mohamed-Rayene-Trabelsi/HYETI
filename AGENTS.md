@@ -1,4 +1,4 @@
-HYETI is a Flutter app for Android only. All data stays on the phone in SQLite; the only network calls are the Watch tab's lookups (AniList, TMDB, OMDb) and the update check, which asks GitHub for the latest release.
+HYETI is a Flutter app for Android only. All data stays on the phone in SQLite; the only network calls are the Watch tab's lookups (AniList, TMDB, OMDb, and ESPN's public scoreboard for football fixtures, which is unofficial and needs no key) and the update check, which asks GitHub for the latest release.
 
 ## Flutter has changed — check before you trust memory
 

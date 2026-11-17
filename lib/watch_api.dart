@@ -28,12 +28,12 @@ class Found {
 
   final String extId;
 
-  /// 'anime', 'movie' or 'series'.
+  /// 'anime', 'movie', 'series' or 'match'.
   final String kind;
   final String title;
   final String? releaseDate;
 
-  /// Local air time in minutes, when the source knows it (anime only).
+  /// Local air or kick-off time in minutes, when the source knows it (anime and matches).
   final int? startMin;
 
   /// Episode or premiere note, e.g. "Episode 7 · 16:30".
@@ -291,6 +291,83 @@ Future<FoundPage> fetchTitles(
       }(),
   ]);
   return (items: found, more: more);
+}
+
+/* ---------- Football: ESPN's public scoreboard, no key ---------- */
+
+/// The competitions offered: ESPN's name for each, and the name shown.
+const footballLeagues = {
+  'uefa.champions': 'Champions League',
+  'eng.1': 'Premier League',
+  'esp.1': 'La Liga',
+  'ita.1': 'Serie A',
+  'ger.1': 'Bundesliga',
+  'fra.1': 'Ligue 1',
+  'fifa.world': 'World Cup',
+  'uefa.euro': 'Euros',
+};
+
+/// The matches of one competition's current round that have not finished, with their kick-off.
+Future<List<(DateTime, Found)>> _leagueMatches(String league) async {
+  final res = await httpClient
+      .get(
+        Uri.https('site.api.espn.com', '/apis/site/v2/sports/soccer/$league/scoreboard'),
+        headers: const {'Accept': 'application/json'},
+      )
+      .timeout(_timeout);
+  if (res.statusCode != 200) throw Exception('ESPN answered ${res.statusCode}');
+  final events = (jsonDecode(utf8.decode(res.bodyBytes)) as Map<String, dynamic>)['events'] as List? ?? const [];
+  final matches = <(DateTime, Found)>[];
+  for (final event in events.cast<Map<String, dynamic>>()) {
+    final game = (event['competitions'] as List?)?.cast<Map<String, dynamic>>().firstOrNull;
+    final kickOff = DateTime.tryParse((event['date'] as String?) ?? '')?.toLocal();
+    if (game == null || kickOff == null) continue;
+    final status = (game['status'] ?? event['status']) as Map<String, dynamic>?;
+    if ((status?['type'] as Map<String, dynamic>?)?['state'] == 'post') continue;
+    Map<String, dynamic>? team(String side) => (game['competitors'] as List?)
+        ?.cast<Map<String, dynamic>>()
+        .where((c) => c['homeAway'] == side)
+        .map((c) => c['team'] as Map<String, dynamic>?)
+        .firstOrNull;
+    final home = team('home'), away = team('away');
+    if (home == null || away == null) continue;
+    final min = kickOff.hour * 60 + kickOff.minute;
+    matches.add((
+      kickOff,
+      Found(
+        extId: 'espn:${event['id']}',
+        kind: 'match',
+        title: '${home['displayName'] ?? 'Home'} vs ${away['displayName'] ?? 'Away'}',
+        releaseDate: toKey(kickOff),
+        startMin: min,
+        note: '${footballLeagues[league] ?? 'Football'} · ${formatTime(min)}',
+        rating: '',
+        poster: home['logo'] as String?,
+      ),
+    ));
+  }
+  return matches;
+}
+
+/// Upcoming football matches, soonest first: those of [league], or with '' of every competition offered.
+Future<FoundPage> fetchMatches(String league) async {
+  final leagues = league.isEmpty ? footballLeagues.keys.toList() : [league];
+  var failed = 0;
+  final rounds = await Future.wait([
+    for (final l in leagues)
+      () async {
+        try {
+          return await _leagueMatches(l);
+        } catch (_) {
+          // One competition failing should not hide the others.
+          failed++;
+          return <(DateTime, Found)>[];
+        }
+      }(),
+  ]);
+  if (failed == leagues.length) throw Exception('No football fixtures could be loaded');
+  final matches = rounds.expand((r) => r).toList()..sort((a, b) => a.$1.compareTo(b.$1));
+  return (items: [for (final m in matches) m.$2], more: false);
 }
 
 /// For a series already on air: the date and label of its next episode, if one is scheduled.

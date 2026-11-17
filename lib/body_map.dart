@@ -3,11 +3,11 @@ import 'package:material_ui/material_ui.dart';
 import 'theme.dart';
 
 /*
- * The figure is drawn on a 200 × 384 grid with the centre line at x = 100.
+ * The figure is drawn on a 200 × 400 grid with the centre line at x = 100.
  * Every path below is the figure's left half; the right half is the same path mirrored.
  */
 
-const _gridWidth = 200.0, _gridHeight = 384.0;
+const _gridWidth = 200.0, _gridHeight = 400.0;
 
 /// Builds a path from SVG path data. Understands absolute M, L, H, V, C and Z only.
 Path _svg(String d) {
@@ -54,38 +54,40 @@ Path _svg(String d) {
 /// One half of the body as a single outline: neck, shoulder, arm and hand, back up to the armpit,
 /// then down the side of the torso, round the leg and foot, and up the inner leg to the centre line.
 final _silhouette = _svg(
-  'M100.6 40L92 40'
-  'C92 46 91 50 86 52' // neck into the trapezius
-  'C78 55 68 56 61 59' // slope to the shoulder
-  'C52 62 47 70 46 82' // deltoid
-  'C45 94 44 104 42 116' // upper arm
-  'C40 124 37 132 36 142' // elbow and forearm
-  'C35 154 33 164 31 174' // down to the wrist
-  'C29 180 27 188 29 196' // hand
-  'C31 201 36 200 38 194'
-  'C40 188 41 182 41 176'
-  'C44 164 48 152 50 140' // inner forearm
-  'C51 132 53 126 55 118' // inner elbow
-  'C57 108 59 100 61 92' // up to the armpit
-  'C62 106 64 122 66 136' // ribs
-  'C67 146 67 154 65 164' // waist
-  'C62 176 59 190 58 204' // hip
-  'C57 222 59 246 63 266' // outer thigh
-  'C62 276 60 286 61 298' // knee and calf
-  'C62 318 66 336 68 352' // down to the ankle
-  'C67 360 63 368 62 374' // foot
-  'C62 379 70 380 86 380'
-  'C88 380 88 374 86 370'
-  'C84 362 83 356 83 350' // inner ankle
-  'C85 334 88 316 88 300' // inner calf
-  'C88 288 86 278 86 268' // inner knee
-  'C88 246 93 220 98 198' // inner thigh
-  'L100.6 196Z',
+  'M100.6 40L92.5 40'
+  'C92.5 50 91 55 85 58' // neck into the trapezius
+  'C77 61 67 62 60 65' // slope to the shoulder
+  'C50 68 44 77 43 89' // deltoid
+  'C42 101 41 111 39 123' // upper arm
+  'C37 132 34 140 33 150' // elbow
+  'C31 164 29 178 27 192' // forearm down to the wrist
+  'C25 200 22 211 24 221' // hand
+  'C26 229 33 228 35 220'
+  'C37 213 38 205 38.5 197'
+  'C42 183 46 167 48 153' // inner forearm
+  'C49 143 52 135 54 125' // inner elbow
+  'C56 115 58 107 60 99' // up to the armpit
+  'C60 113 62 129 65 143' // ribs
+  'C67 153 68 161 67 171' // waist
+  'C65 182 62 194 61 207' // hip
+  'C58 228 59 254 63 276' // outer thigh
+  'C62 286 60 296 61 308' // knee
+  'C61 328 65 348 68 366' // calf down to the ankle
+  'C68 374 64 381 62 387' // foot
+  'C61 393 70 395 85 395'
+  'C89 395 89 389 87 383'
+  'C85 376 84 370 84 364' // inner ankle
+  'C87 346 90 328 90 310' // inner calf
+  'C90 298 88 288 88 278' // inner knee
+  'C90 254 94 228 98 206' // inner thigh
+  'L100.6 204Z',
 );
 
-const _deltoid = 'M61 61C53 63 48 71 48 82C48 88 50 92 53 95C57 90 61 83 64 73C65 67 64 63 61 61Z';
-const _upperArm = 'M49 98C46 108 44 118 46 128C49 131 52 129 54 125C57 116 59 107 59 99C56 96 52 96 49 98Z';
-const _forearm = 'M40 135C38 146 36 158 34 169L40 171C43 161 47 150 49 139C47 134 43 133 40 135Z';
+const _deltoid = 'M60 67C52 69 46 77 45.5 89C45.5 95 47 100 50 104C55 98 60 90 63.5 80C65 74 64 69 60 67Z';
+const _forearm = [
+  'M36 146.5C34 159 31.3 174 29.3 190L35 192.5C38 178 41.3 164 43 150C41.5 144.5 38.5 144.5 36 146.5Z',
+  'M45 149.5C44 164 40.3 180 37 193L38.8 194C42.3 183 46.2 169 47.5 156C47.2 152.5 46.3 150.5 45 149.5Z',
+];
 
 class _Part {
   _Part(this.muscle, List<String> paths) : paths = [for (final d in paths) _svg(d)];
@@ -94,51 +96,70 @@ class _Part {
 }
 
 final _front = [
+  // The top of the trapezius shows from the front, either side of the neck.
+  _Part('Back', ['M91.5 49C90.5 55 87 58.5 81 60.5L69 64.5C78 65 86 64 92.5 61Z']),
   _Part('Shoulders', [_deltoid]),
-  _Part('Chest', ['M67 68C76 63 90 63 98.6 67V93C91 100 77 100 70 94C65 87 64 76 67 68Z']),
-  _Part('Biceps', [_upperArm]),
-  _Part('Forearms', [_forearm]),
+  _Part('Chest', ['M66.5 71C75 66.5 90 66.5 98.6 70.5V97C92 104 78 105 70.5 99C65 92 63.5 81 66.5 71Z']),
+  _Part('Biceps', ['M50 107C46 117 44 127 46 139C49 142 53 140 55 135C58 126 60 116 60 107C57 103 53 104 50 107Z']),
+  _Part('Forearms', _forearm),
   _Part('Core', [
-    // Obliques, three pairs of abdominals, and the lower abdomen.
-    'M68 101C67 118 67 136 69 153L82 165V104C77 105 72 104 68 101Z',
-    'M88 103H98.6V115H88C86.6 115 85.5 114 85.5 112.5V105.5C85.5 104 86.6 103 88 103Z',
-    'M88 118H98.6V130H88C86.6 130 85.5 129 85.5 127.5V120.5C85.5 119 86.6 118 88 118Z',
-    'M88 133H98.6V145H88C86.6 145 85.5 144 85.5 142.5V135.5C85.5 134 86.6 133 88 133Z',
-    'M85.5 148H98.6V174C93 172 88 167 85.5 161Z',
+    // Serratus, obliques, three pairs of abdominals, and the lower abdomen.
+    'M65.5 104L73 108.5L72.5 113.5L66 110Z',
+    'M66.3 113.5L73 117.5L72.6 122.5L67 119.5Z',
+    'M67.2 123L73.2 126.5L73 131.5L68.2 129Z',
+    'M75 107C74.5 119 72.5 129 70.5 135C69.5 143 69.5 151 70.5 159L83 169V109C80 109 77.5 108 75 107Z',
+    'M88 105H98.6V117H88C86.6 117 85.5 116 85.5 114.5V107.5C85.5 106 86.6 105 88 105Z',
+    'M88 120H98.6V132H88C86.6 132 85.5 131 85.5 129.5V122.5C85.5 121 86.6 120 88 120Z',
+    'M88 135H98.6V147H88C86.6 147 85.5 146 85.5 144.5V137.5C85.5 136 86.6 135 88 135Z',
+    'M85.5 150H98.6V179C93 177 88 171 85.5 164Z',
   ]),
   _Part('Quads', [
-    // Outer and inner thigh.
-    'M61 201C59 222 61 246 66 263C70 266 74 266 77 264C74 244 73 222 75 199C70 198 65 199 61 201Z',
-    'M78 199C76 222 77 244 80 264C83 264 85 262 86 258C90 243 95 222 97 203C91 199 84 198 78 199Z',
+    // Outer sweep, the middle of the thigh, and the inner thigh narrowing to the knee.
+    'M62.5 213C59.5 233 60.5 258 65.5 278C68 282.5 71.5 282.5 73.5 279C71.5 258 72 234 75.5 211.5C71 208.5 66 209.5 62.5 213Z',
+    'M78 210.5C74.5 232 74.5 258 76.5 279C78.5 282.5 81.5 282.5 83 279C85.5 262 86 236 85 210.5C83 208.5 80 208.5 78 210.5Z',
+    'M87.5 211C88.5 232 88.5 258 85.5 279.5C87 282 88.3 280 88.4 276C89.2 262 91 248 93 237C94.8 228 96.2 220 97 212C94.5 209.5 90.5 209.5 87.5 211Z',
   ]),
-  _Part('Calves', ['M65 281C63 298 65 322 69 343H79C83 322 86 300 86 281C80 277 71 277 65 281Z']),
+  _Part('Calves', [
+    'M64 297C62 313 64 335 68 355L72 355C72 335 72 315 70 295C68 293 66 294 64 297Z',
+    'M74 295C75 315 75 337 75 357L80 357C84 339 87.5 319 87.5 301C84 295 78 293 74 295Z',
+  ]),
 ];
 
 final _back = [
   _Part('Back', [
-    // Trapezius, lat, lower back.
-    'M100.6 43C95 50 80 55 67 59C78 64 90 78 100.6 100Z',
-    'M67 72C65 94 67 118 73 138L96 150C98 132 98 116 97 104C88 92 78 80 69 68Z',
-    'M86 154H100.6V176H88C86 170 85 162 86 154Z',
+    // Trapezius, the muscles over the shoulder blade, lat, lower back.
+    'M100.6 45C96 54 82 60 68 64.5C78 68 90 84 100.6 112Z',
+    'M67 71C74 73 82 79 90 89C84 93 76 95 68 93C65 86 65 78 67 71Z',
+    'M66 97C74 99 84 97 92 93C96 105 98 121 98.6 141L96 153L74 143C69 129 66 113 66 97Z',
+    'M87 155L98.6 159V185C95 185 92 183 90 179C87.5 172 86.5 163 87 155Z',
   ]),
   _Part('Shoulders', [_deltoid]),
-  _Part('Triceps', [_upperArm]),
-  _Part('Forearms', [_forearm]),
-  _Part('Glutes', ['M63 179C60 193 64 206 77 210C90 210 98 204 99 194V179C88 175 73 175 63 179Z']),
+  _Part('Triceps', [
+    'M49 106C46 117 44 128 46 139C48 141 50 140 51.5 137C52.5 127 52.5 115 52 105Z',
+    'M54 105C54.5 115 54.5 127 53.5 137C56 133 58 125 60 107C58 104 56 104 54 105Z',
+  ]),
+  _Part('Forearms', _forearm),
+  _Part('Glutes', ['M63.5 188C60.5 202 63.5 216 76.5 221C89.5 221 98.2 214 98.6 204V188C88 183 73.5 183 63.5 188Z']),
   _Part('Hamstrings', [
-    'M61 216C60 236 62 253 66 263C70 266 74 266 77 264C75 248 75 232 76 219C71 219 66 218 61 216Z',
-    'M79 219C78 234 78 250 80 264C83 264 85 262 86 258C90 246 93 232 95 217C90 219 84 219 79 219Z',
+    'M62 226C60 246 62 264 66 274C70 277 73 277 76 275C74.5 258 74.5 242 76 229C71 229 66 228 62 226Z',
+    'M78.5 229C77.5 244 77.5 260 79.5 275C82.5 275 85 273 86 269C89.5 256 93 242 95 227C90 229 84 229 78.5 229Z',
   ]),
   _Part('Calves', [
     // The two heads of the calf.
-    'M63 279C60 296 63 316 70 332H74.5V276C70 275 66 276 63 279Z',
-    'M77 276V332H80C86 316 89 296 86 279C83 276 80 275 77 276Z',
+    'M63.5 292C60.5 310 63.5 330 70.5 346H75V289C70.5 288 66.5 289 63.5 292Z',
+    'M77.5 289V346H80.5C86.5 330 89.5 310 87.5 292C84.5 289 80.5 288 77.5 289Z',
   ]),
 ];
 
-/// Which side of the figure a muscle is drawn on; some are on both.
-bool muscleOnSide(String muscle, String side) =>
-    (side == 'front' ? _front : _back).any((part) => part.muscle == muscle);
+List<_Part> _parts(String side) => side == 'front' ? _front : _back;
+
+/// Which side shows more of [muscles]: 'front' or 'back'. The front wins a tie.
+String bestSide(Iterable<String> muscles) {
+  // The sliver of trapezius on the front does not make the front the place to look at the back.
+  int shown(List<_Part> parts) => muscles.where((m) => parts.any((p) => p.muscle == m)).length;
+  final front = muscles.where((m) => m != 'Back' && _front.any((p) => p.muscle == m)).length;
+  return shown(_back) > front ? 'back' : 'front';
+}
 
 /// Invisible tap targets laid over the drawing. Later entries sit on top of earlier ones.
 List<Rect> _both(double x, double y, double w, double h) => [
@@ -146,33 +167,72 @@ List<Rect> _both(double x, double y, double w, double h) => [
   Rect.fromLTWH(_gridWidth - x - w, y, w, h),
 ];
 
-final _shoulderHit = _both(43, 57, 23, 40);
-final _upperArmHit = _both(39, 96, 22, 37);
-final _forearmHit = _both(28, 133, 24, 44);
+final _shoulderHit = _both(41, 63, 24, 42);
+final _upperArmHit = _both(38, 104, 23, 40);
+final _forearmHit = _both(22, 144, 28, 50);
 
 final _hits = <String, List<(String, List<Rect>)>>{
   'front': [
-    ('Core', [const Rect.fromLTWH(66, 100, 68, 76)]),
-    ('Chest', _both(66, 62, 34, 38)),
+    ('Core', [const Rect.fromLTWH(65, 103, 70, 78)]),
+    ('Chest', _both(65, 65, 35, 39)),
     ('Shoulders', _shoulderHit),
     ('Biceps', _upperArmHit),
     ('Forearms', _forearmHit),
-    ('Quads', _both(57, 196, 43, 72)),
-    ('Calves', _both(59, 274, 31, 74)),
+    ('Quads', _both(57, 205, 43, 74)),
+    ('Calves', _both(59, 288, 32, 76)),
   ],
   'back': [
-    ('Back', [const Rect.fromLTWH(66, 42, 68, 136)]),
+    ('Back', [const Rect.fromLTWH(65, 44, 70, 140)]),
     ('Shoulders', _shoulderHit),
     ('Triceps', _upperArmHit),
     ('Forearms', _forearmHit),
-    ('Glutes', _both(59, 177, 41, 36)),
-    ('Hamstrings', _both(57, 214, 43, 54)),
-    ('Calves', _both(59, 272, 31, 64)),
+    ('Glutes', _both(59, 185, 41, 38)),
+    ('Hamstrings', _both(57, 224, 43, 56)),
+    ('Calves', _both(59, 284, 32, 68)),
   ],
 };
 
+/// The figure alone, not tappable: a small picture of which muscles a workout trains.
+/// [lit] muscles are drawn in the accent colour (or [litColor]).
+class BodyFigure extends StatelessWidget {
+  const BodyFigure({super.key, required this.side, required this.lit, this.litColor, this.height = 80});
+
+  /// 'front' or 'back'.
+  final String side;
+  final Set<String> lit;
+  final Color? litColor;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return SizedBox(
+      width: _gridWidth * height / _gridHeight,
+      height: height,
+      child: ExcludeSemantics(
+        child: CustomPaint(
+          painter: _BodyPainter(
+            parts: _parts(side),
+            selected: null,
+            lit: lit,
+            stale: const [],
+            body: Color.lerp(c.surface, c.text, 0.16)!,
+            muscle: Color.lerp(c.surface, c.text, 0.3)!,
+            litColor: litColor ?? c.accent,
+            staleColor: c.warn,
+            accent: c.accent,
+            // At this size the lines between muscles would swallow them.
+            gapWidth: 0.9,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// A front or back muscle illustration whose groups can be tapped.
-/// [stale] muscles (not trained recently) are tinted so they stand out.
+/// [planned] muscles (in the workout being looked at) are tinted with the accent; [stale] ones
+/// (not trained recently) in amber, so both stand out.
 class BodyMap extends StatelessWidget {
   const BodyMap({
     super.key,
@@ -180,12 +240,14 @@ class BodyMap extends StatelessWidget {
     required this.selected,
     required this.stale,
     required this.onSelect,
+    this.planned = const {},
     this.height = 300,
   });
 
   /// 'front' or 'back'.
   final String side;
   final String? selected;
+  final Set<String> planned;
   final List<String> stale;
   final ValueChanged<String> onSelect;
   final double height;
@@ -203,12 +265,14 @@ class BodyMap extends StatelessWidget {
             child: ExcludeSemantics(
               child: CustomPaint(
                 painter: _BodyPainter(
-                  parts: side == 'front' ? _front : _back,
+                  parts: _parts(side),
                   selected: selected,
+                  lit: planned,
                   stale: stale,
                   // The body sits a little above the card it is on; muscles a step above that.
-                  body: Color.lerp(c.surface, c.text, 0.11)!,
-                  muscle: Color.lerp(c.surface, c.text, 0.27)!,
+                  body: Color.lerp(c.surface, c.text, 0.12)!,
+                  muscle: Color.lerp(c.surface, c.text, 0.28)!,
+                  litColor: Color.lerp(c.surface, c.accent, 0.5)!,
                   staleColor: Color.lerp(c.surface, c.warn, 0.8)!,
                   accent: c.accent,
                 ),
@@ -226,7 +290,9 @@ class BodyMap extends StatelessWidget {
                 child: Semantics(
                   button: i == 0,
                   selected: i == 0 ? muscle == selected : null,
-                  label: i == 0 ? '$muscle${stale.contains(muscle) ? ', not trained recently' : ''}' : null,
+                  label: i == 0
+                      ? '$muscle, $side${stale.contains(muscle) ? ', not trained recently' : ''}'
+                      : null,
                   excludeSemantics: i != 0,
                   child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: () => onSelect(muscle)),
                 ),
@@ -241,17 +307,24 @@ class _BodyPainter extends CustomPainter {
   const _BodyPainter({
     required this.parts,
     required this.selected,
+    required this.lit,
     required this.stale,
     required this.body,
     required this.muscle,
+    required this.litColor,
     required this.staleColor,
     required this.accent,
+    this.gapWidth = 1.5,
   });
 
   final List<_Part> parts;
   final String? selected;
+  final Set<String> lit;
   final List<String> stale;
-  final Color body, muscle, staleColor, accent;
+  final Color body, muscle, litColor, staleColor, accent;
+  final double gapWidth;
+
+  bool get front => identical(parts, _front);
 
   /// Draws once as given and once flipped across the centre line.
   void _mirrored(Canvas canvas, VoidCallback draw) {
@@ -268,19 +341,39 @@ class _BodyPainter extends CustomPainter {
     canvas.scale(size.width / _gridWidth);
 
     final skin = Paint()..color = body;
-    canvas.drawOval(Rect.fromCenter(center: const Offset(100, 23), width: 29, height: 38), skin);
+    // The head: a skull with a slightly narrower jaw.
+    canvas.drawPath(
+      _svg(
+        'M100 4C109 4 115 11 115 21C115 29 113 36 109 41C106 44.5 103 46 100 46'
+        'C97 46 94 44.5 91 41C87 36 85 29 85 21C85 11 91 4 100 4Z',
+      ),
+      skin,
+    );
     _mirrored(canvas, () => canvas.drawPath(_silhouette, skin));
+
+    // Kneecaps and collarbones: not muscles, but without them the figure reads as a mannequin.
+    final bone = Paint()..color = Color.lerp(body, muscle, 0.45)!;
+    _mirrored(canvas, () {
+      if (front) {
+        canvas.drawPath(_svg('M70 284C70 280 82 280 82 284C82 290 80 294 76 294C72 294 70 290 70 284Z'), bone);
+        canvas.drawPath(_svg('M70 66.5C79 65.5 90 66 97 68.5L97 66.5C90 63.5 79 63.5 70 66.5Z'), bone);
+      } else {
+        canvas.drawPath(_svg('M69 280C72 284 80 284 84 280L83 277C79 280 73 280 70 277Z'), bone);
+      }
+    });
 
     // A thin line in the body colour keeps neighbouring muscles visibly apart.
     final gap = Paint()
       ..color = body
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.6
+      ..strokeWidth = gapWidth
       ..strokeJoin = StrokeJoin.round;
     for (final part in parts) {
       final fill = Paint()
         ..color = part.muscle == selected
             ? accent
+            : lit.contains(part.muscle)
+            ? litColor
             : stale.contains(part.muscle)
             ? staleColor
             : muscle;
@@ -299,7 +392,9 @@ class _BodyPainter extends CustomPainter {
       old.selected != selected ||
       old.body != body ||
       old.muscle != muscle ||
+      old.litColor != litColor ||
       old.staleColor != staleColor ||
       old.accent != accent ||
+      old.lit.join() != lit.join() ||
       old.stale.join() != stale.join();
 }

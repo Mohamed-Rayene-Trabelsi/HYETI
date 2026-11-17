@@ -151,7 +151,7 @@ void main() {
     await start(tester);
     await openTab(tester, 'Watch');
     expect(find.byIcon(Icons.key_outlined), findsNothing);
-    await tapText(tester, 'Movies');
+    await tapText(tester, 'Shows');
     expect(find.text('Add OMDb key'), findsNothing);
     expect(find.text('A free key is needed'), findsNothing);
   });
