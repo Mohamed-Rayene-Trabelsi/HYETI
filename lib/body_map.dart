@@ -290,9 +290,7 @@ class BodyMap extends StatelessWidget {
                 child: Semantics(
                   button: i == 0,
                   selected: i == 0 ? muscle == selected : null,
-                  label: i == 0
-                      ? '$muscle, $side${stale.contains(muscle) ? ', not trained recently' : ''}'
-                      : null,
+                  label: i == 0 ? '$muscle, $side${stale.contains(muscle) ? ', not trained recently' : ''}' : null,
                   excludeSemantics: i != 0,
                   child: GestureDetector(behavior: HitTestBehavior.opaque, onTap: () => onSelect(muscle)),
                 ),

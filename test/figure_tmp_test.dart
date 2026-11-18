@@ -22,7 +22,14 @@ void main() {
             spacing: 20,
             children: [
               BodyMap(side: 'front', selected: 'Chest', stale: const ['Quads'], onSelect: (_) {}, height: 860),
-              BodyMap(side: 'back', selected: 'Back', stale: const [], planned: const {'Glutes'}, onSelect: (_) {}, height: 860),
+              BodyMap(
+                side: 'back',
+                selected: 'Back',
+                stale: const [],
+                planned: const {'Glutes'},
+                onSelect: (_) {},
+                height: 860,
+              ),
               const BodyFigure(side: 'front', lit: {'Chest', 'Shoulders'}, height: 90),
               const BodyFigure(side: 'back', lit: {'Back'}, height: 90),
             ],
