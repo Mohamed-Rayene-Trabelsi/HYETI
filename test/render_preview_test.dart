@@ -237,6 +237,15 @@ void main() {
     await tester.tap(find.text('Save').hitTestable().first);
     await settle(tester);
     await snap(tester, 'watch_football');
+    await tester.tap(find.text('Follow a country').hitTestable());
+    await settle(tester);
+    await tester.enterText(find.byType(TextField).hitTestable().first, 'tun');
+    await settle(tester);
+    await tester.tap(find.text('Tunisia').hitTestable());
+    await settle(tester);
+    await snap(tester, 'watch_countries');
+    await tester.tap(find.text('Close').hitTestable());
+    await settle(tester);
     await openTab(tester, 'Body');
 
     await tester.tap(find.byIcon(Icons.settings_outlined).hitTestable());

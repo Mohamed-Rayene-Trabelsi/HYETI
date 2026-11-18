@@ -9,7 +9,7 @@ import 'ui.dart';
 import 'watch_api.dart' show httpClient;
 
 /// The version of this build. Must match `version` in pubspec.yaml; a test checks that it does.
-const appVersion = '1.1.1';
+const appVersion = '1.1.2';
 
 /// The GitHub repository whose releases carry `HYETI.apk`.
 const _repo = 'Mohamed-Rayene-Trabelsi/HYETI';

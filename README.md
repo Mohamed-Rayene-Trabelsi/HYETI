@@ -18,7 +18,7 @@ A personal planner for Android. Calendar, gym and food log, wallet, watchlist an
 - **Calendar.** Set up a weekly routine once and it fills in every day. Day, week and month views. Blocks are added from one sheet: pick one of sixteen activities, a start time and a one-tap length. If you're running late you can push the rest of the day back, and you can mark days off.
 - **Body.** A muscle map that shows what you trained and what has rested long enough, with exercise suggestions and set logging. There is a countdown for your gym membership, and a nutrition side with a calorie and macro plan and a food log.
 - **Wallet.** Income, spending and savings, a weekly budget and a savings goal. Photograph a receipt and the amount, shop and date are filled in for you; the picture is read on the phone and never leaves it.
-- **Watch.** A watchlist for shows (movies and series), anime and football, with what's popular, what's coming out and the next matches of the big competitions. Search runs as you type. A watch night or a match can go straight onto the calendar.
+- **Watch.** A watchlist for shows (movies and series), anime and football, with what's popular, what's coming out, and every match of the big competitions for the months ahead. Follow countries, such as Tunisia, to add their national team and their clubs in the continental cups. Search runs as you type. A watch night or a match can go straight onto the calendar.
 - **Notes.** Written notes and finger-drawn sketches, which you can search and pin. Sketches have six pen colours, three pen sizes, an eraser, and undo and redo.
 - **Settings.** Light or dark, eight colour themes (one of them yours to mix), your country and its currency, units, and a button that erases everything.
 

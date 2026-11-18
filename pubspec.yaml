@@ -3,7 +3,7 @@ description: "HYETI, a personal planner: calendar, body, wallet, watch list and 
 publish_to: 'none'
 
 # versionName+versionCode. Raise both for every APK you hand out, or Android will not install it over the old one.
-version: 1.1.1+7
+version: 1.1.2+8
 
 environment:
   sdk: ^3.14.0
