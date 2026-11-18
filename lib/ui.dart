@@ -382,6 +382,68 @@ class ListRow extends StatelessWidget {
   }
 }
 
+/// A setting that opens a picker: its name on the left, the current choice on the right, and a chevron.
+class SettingRow extends StatelessWidget {
+  const SettingRow({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.onTap,
+    this.icon,
+    this.divider = false,
+    this.placeholder = 'Choose',
+  });
+
+  final String label;
+
+  /// The current choice; empty shows [placeholder] in the accent colour.
+  final String value;
+  final VoidCallback onTap;
+  final IconData? icon;
+  final bool divider;
+  final String placeholder;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Semantics(
+      button: true,
+      label: '$label: ${value.isEmpty ? placeholder : value}',
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: () {
+          tick();
+          onTap();
+        },
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 52),
+          padding: const EdgeInsets.symmetric(vertical: Spacing.sm),
+          decoration: BoxDecoration(
+            border: divider ? Border(top: BorderSide(color: c.border, width: 0.5)) : null,
+          ),
+          child: Row(
+            spacing: Spacing.md,
+            children: [
+              if (icon != null) Icon(icon, size: 20, color: c.textDim),
+              T(label, variant: TextVariant.label),
+              Expanded(
+                child: T(
+                  value.isEmpty ? placeholder : value,
+                  color: value.isEmpty ? c.accent : c.textDim,
+                  align: TextAlign.end,
+                  maxLines: 2,
+                  style: const TextStyle(fontSize: 15),
+                ),
+              ),
+              Icon(Icons.chevron_right, size: 20, color: c.textDim),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Padding for a card whose children are [ListRow]s.
 const listCardPadding = EdgeInsets.symmetric(horizontal: Spacing.lg, vertical: Spacing.xs);
 

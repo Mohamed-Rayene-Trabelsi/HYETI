@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:personal_mobile_app/date.dart';
 import 'package:personal_mobile_app/receipt.dart';
 import 'package:personal_mobile_app/db.dart';
+import 'package:personal_mobile_app/jar.dart';
 import 'package:personal_mobile_app/main.dart';
 import 'package:personal_mobile_app/sketch.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -68,7 +69,7 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.settings_outlined).hitTestable());
     await settle(tester);
-    expect(find.text('Everything is stored on this phone'), findsOneWidget);
+    expect(find.text('Everything is stored on this phone. No account, no sync, no ads.'), findsOneWidget);
 
     await tester.tap(find.byIcon(Icons.arrow_back));
     await settle(tester);
@@ -112,13 +113,25 @@ void main() {
     expect(find.text('0 of ${today.length} done'), findsOneWidget);
   });
 
-  testWidgets('week and month views draw the routine', (tester) async {
+  testWidgets('the month view draws the routine, and there is no week view', (tester) async {
     await start(tester);
     await tapText(tester, 'Use a sample routine');
-    await tapText(tester, 'Week');
-    expect(find.text('Lunch'), findsWidgets);
+    expect(find.text('Week'), findsNothing);
     await tapText(tester, 'Month');
     expect(find.text(formatMonth(todayKey())), findsOneWidget);
+  });
+
+  testWidgets('weekly days off are set in settings and leave work off the calendar', (tester) async {
+    await start(tester);
+    await tester.tap(find.byIcon(Icons.settings_outlined).hitTestable());
+    await settle(tester);
+    await tapText(tester, 'Days off');
+    final today = weekdays[weekdayOf(todayKey())];
+    await tapText(tester, today);
+    expect(appDb.setting<List<dynamic>>('off_weekdays', const []), [weekdayOf(todayKey())]);
+    // Tapping again makes it a normal day once more.
+    await tapText(tester, today);
+    expect(appDb.setting<List<dynamic>>('off_weekdays', const []), isEmpty);
   });
 
   testWidgets('the top bar with the settings gear stays on every tab', (tester) async {
@@ -154,6 +167,22 @@ void main() {
     await tapText(tester, 'Shows');
     expect(find.text('Add OMDb key'), findsNothing);
     expect(find.text('A free key is needed'), findsNothing);
+  });
+
+  testWidgets('money dropped in the savings jar is saved and fills it', (tester) async {
+    await start(tester);
+    await tester.runAsync(() => appDb.setSetting('goal', {'name': 'Bike', 'target': 40}));
+    await openTab(tester, 'Wallet');
+    expect(find.text('0% of \$40'), findsOneWidget);
+
+    await tapText(tester, 'Drop in');
+    await tapText(tester, '+\$10');
+
+    final rows = await tester.runAsync(() => appDb.query("SELECT * FROM transactions WHERE kind = 'saving'"));
+    expect(rows!.single['amount'], 10);
+    expect(find.text('25% of \$40'), findsOneWidget);
+    // Passing a quarter of the goal is cheered.
+    expect(find.text(jarCheers[25]!), findsOneWidget);
   });
 
   testWidgets('a transaction shows up in the wallet totals and can be edited', (tester) async {
@@ -193,6 +222,22 @@ void main() {
     expect(row['amount'], 23.75);
     expect(row['kind'], 'expense');
     expect(row['date'], '2026-01-02');
+  });
+
+  testWidgets('a misread receipt total is fixed by tapping another amount from it', (tester) async {
+    final real = readReceiptText;
+    addTearDown(() => readReceiptText = real);
+    // The "total" line is really the items count's price; the right figure is elsewhere on the receipt.
+    readReceiptText = ({required bool camera}) async => 'CORNER SHOP\nTea  4.50\nCake  6.25\nTOTAL  4.50\nDue 10.75';
+    await start(tester);
+    await openTab(tester, 'Wallet');
+    await tapText(tester, 'Add');
+    await tapText(tester, 'Scan receipt');
+
+    expect(tester.widget<TextField>(field(0)).controller!.text, '4.5');
+    expect(find.textContaining('Tap the right amount'), findsOneWidget);
+    await tapText(tester, '10.75');
+    expect(tester.widget<TextField>(field(0)).controller!.text, '10.75');
   });
 
   testWidgets('a logged set appears in today\'s workout, and removing it can be undone', (tester) async {
@@ -297,7 +342,8 @@ void main() {
     await tester.tap(find.byIcon(Icons.settings_outlined).hitTestable());
     await settle(tester);
     expect(find.text('Week starts on'), findsNothing);
-    await tapText(tester, 'Choose a country');
+    await tapText(tester, 'Country and units');
+    await tapText(tester, 'Country');
     await tester.enterText(field(0), 'tunis');
     await settle(tester);
     await tapText(tester, 'Tunisia');
@@ -313,6 +359,7 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.settings_outlined).hitTestable());
     await settle(tester);
+    await tapText(tester, 'Appearance');
     await tapText(tester, 'Dark Knight');
 
     expect(appDb.setting('palette', 'indigo'), 'bat');

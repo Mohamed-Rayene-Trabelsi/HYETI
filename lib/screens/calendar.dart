@@ -84,6 +84,9 @@ String _span(int minutes) {
   return '${minutes ~/ 60} h${m > 0 ? ' $m min' : ''}';
 }
 
+/// The weekdays (0 = Monday) that are always days off, as chosen in Settings. Work blocks are left out on them.
+List<int> offWeekdays() => [for (final d in appDb.setting<List<dynamic>>('off_weekdays', const [])) d as int];
+
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({super.key});
 
@@ -158,11 +161,17 @@ class _CalendarScreenState extends State<CalendarScreen> with Live {
       [from, to],
     );
     final off = await appDb.query('SELECT date FROM day_offs WHERE date BETWEEN ? AND ?', [from, to]);
+    // Days off are the weekdays chosen in Settings, plus single dates (holidays) added there.
+    final weekly = offWeekdays();
     final routines = await appDb.query('SELECT * FROM routines ORDER BY start_min, id');
     // The user moved on while this was loading; a newer load is on its way.
     if (from != _from || to != _to) return;
     _events = events;
-    _offDates = [for (final r in off) r['date'] as String];
+    _offDates = [
+      for (final r in off) r['date'] as String,
+      for (final d in dateRange(from, to))
+        if (weekly.contains(weekdayOf(d))) d,
+    ];
     _routines = routines;
   }
 
@@ -239,39 +248,6 @@ class _CalendarScreenState extends State<CalendarScreen> with Live {
     );
   }
 
-  void _openLate() {
-    showSheet(
-      context,
-      title: 'Running late',
-      builder: (sheet) => FormColumn(
-        children: [
-          const T(
-            'Pushes every block you have not finished yet. Blocks pushed past their buffer are flagged.',
-            dim: true,
-          ),
-          Wrap(
-            spacing: Spacing.sm,
-            runSpacing: Spacing.sm,
-            children: [
-              for (final m in const [10, 15, 30, 45, 60])
-                AppButton(
-                  '+$m min',
-                  kind: ButtonKind.soft,
-                  onPressed: () async {
-                    await appDb.run(
-                      'UPDATE events SET shift_min = shift_min + ? WHERE date = ? AND done = 0 AND end_min + shift_min > ?',
-                      [m, todayKey(), nowMinutes()],
-                    );
-                    if (sheet.mounted) Navigator.pop(sheet);
-                  },
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   void _openRoutines() => showSheet(context, title: 'Weekly routine', builder: (_) => const _RoutineList());
 
   Future<void> _addSample() {
@@ -298,57 +274,35 @@ class _CalendarScreenState extends State<CalendarScreen> with Live {
     final dayBlocks = _events.where((e) => e['date'] == date && !(isOff && e['category'] == 'work')).toList();
     final doneCount = dayBlocks.where((e) => e['done'] == 1).length;
     final isToday = date == today;
-    final delayed = dayBlocks.any((e) => (e['shift_min'] as int) > 0);
     final now = nowMinutes();
-    final canRunLate = isToday && dayBlocks.any((e) => e['done'] != 1 && _endOf(e) > now);
     // First run: nothing set up yet. Checked only once the data has loaded, so it never flashes.
     final needsSetup = ready && _routines.isEmpty && _events.isEmpty;
 
     final relative = relativeDay(date);
     final named = relative != formatDay(date);
-    String dayMonth(String key) => formatDay(key).split(', ')[1];
-    final rangeLabel = _view == 'month'
-        ? formatMonth(date)
-        : '${dayMonth(_weekFrom)} – ${dayMonth(addDays(_weekFrom, 6))}';
-
-    // Quick actions for the day on show; they sit inside the day card.
-    final chips = [
-      if (!isToday)
-        AppChip(
-          'Today',
-          icon: Icons.today,
-          onPressed: () => _go(date: today),
-        ),
-      AppChip(
-        'Day off',
-        icon: isOff ? Icons.check : Icons.beach_access_outlined,
-        selected: isOff,
-        color: c.warn,
-        onPressed: () => appDb.run(
-          isOff ? 'DELETE FROM day_offs WHERE date = ?' : 'INSERT OR IGNORE INTO day_offs (date) VALUES (?)',
-          [date],
-        ),
-      ),
-      if (canRunLate) AppChip('Running late', icon: Icons.schedule, onPressed: _openLate),
-      if (delayed)
-        AppChip(
-          'Clear delays',
-          icon: Icons.restart_alt,
-          onPressed: () => appDb.run('UPDATE events SET shift_min = 0 WHERE date = ?', [date]),
-        ),
-    ];
+    final rangeLabel = formatMonth(date);
 
     return Screen(
       title: relative,
-      subtitle: named ? '${formatDay(date)} ${date.substring(0, 4)}' : formatMonth(date),
-      actions: [HeaderIcon(Icons.repeat, label: 'Weekly routine', onPressed: _openRoutines)],
+      // Only a named day ("Tomorrow") needs its date spelled out: the top bar shows today's, the title shows any
+      // other day's, and the month view has its own month header.
+      subtitle: named && !isToday ? '${formatDay(date)} ${date.substring(0, 4)}' : null,
+      actions: [
+        if (!isToday)
+          HeaderIcon(
+            Icons.today,
+            label: 'Back to today',
+            onPressed: () => _go(date: today),
+          ),
+        HeaderIcon(Icons.repeat, label: 'Weekly routine', onPressed: _openRoutines),
+      ],
       fabLabel: 'Add',
       onFab: _openNew,
       children: [
         Segmented<String>(
           value: _view,
           onChanged: (v) => _go(view: v),
-          options: const {'day': 'Day', 'week': 'Week', 'month': 'Month'},
+          options: const {'day': 'Day', 'month': 'Month'},
         ),
         if (_view == 'day')
           // The week at a glance, with arrows to move a week: tap a day to open it.
@@ -378,11 +332,7 @@ class _CalendarScreenState extends State<CalendarScreen> with Live {
           Row(
             spacing: Spacing.md,
             children: [
-              _NavArrow(
-                icon: Icons.chevron_left,
-                hint: _view == 'month' ? 'Previous month' : 'Previous week',
-                onTap: () => _step(-1),
-              ),
+              _NavArrow(icon: Icons.chevron_left, hint: 'Previous month', onTap: () => _step(-1)),
               Expanded(
                 child: Semantics(
                   button: true,
@@ -403,11 +353,7 @@ class _CalendarScreenState extends State<CalendarScreen> with Live {
                   ),
                 ),
               ),
-              _NavArrow(
-                icon: Icons.chevron_right,
-                hint: _view == 'month' ? 'Next month' : 'Next week',
-                onTap: () => _step(1),
-              ),
+              _NavArrow(icon: Icons.chevron_right, hint: 'Next month', onTap: () => _step(1)),
             ],
           ),
         if (needsSetup)
@@ -440,28 +386,14 @@ class _CalendarScreenState extends State<CalendarScreen> with Live {
               _go(date: d);
             },
           ),
-        if (_view == 'week' && !needsSetup)
-          Timeline(
-            days: dateRange(_from, _to),
-            events: _events,
-            offDates: _offDates,
-            hourHeight: 38,
-            onPressEvent: _openEdit,
-            onPressSlot: (d, start) {
-              _go(date: d);
-              _openNew(start: start);
-            },
-            onPressDay: (d) => _go(date: d, view: 'day'),
-          ),
         // Day and month views share the same summary and list for the chosen day.
-        if (_view != 'week' && !needsSetup) ...[
+        if (!needsSetup) ...[
           _DayCard(
             blocks: dayBlocks,
             doneCount: doneCount,
             isToday: isToday,
             isOff: isOff,
             now: now,
-            chips: chips,
             onToggle: _toggle,
           ),
           if (ready)
@@ -487,7 +419,6 @@ class _DayCard extends StatelessWidget {
     required this.isToday,
     required this.isOff,
     required this.now,
-    required this.chips,
     required this.onToggle,
   });
 
@@ -496,7 +427,6 @@ class _DayCard extends StatelessWidget {
   final bool isToday;
   final bool isOff;
   final int now;
-  final List<Widget> chips;
   final ValueChanged<Rec> onToggle;
 
   @override
@@ -545,6 +475,8 @@ class _DayCard extends StatelessWidget {
       );
     }
 
+    // Another day with nothing on it: the list below says so, and an empty card would only add noise.
+    if (focus == null && blocks.isEmpty) return const SizedBox.shrink();
     return AppCard(
       padding: const EdgeInsets.all(Spacing.md),
       spacing: Spacing.md,
@@ -558,7 +490,6 @@ class _DayCard extends StatelessWidget {
               T('$doneCount of ${blocks.length} done', variant: TextVariant.label),
             ],
           ),
-        Wrap(spacing: Spacing.sm, runSpacing: Spacing.sm, children: chips),
       ],
     );
   }
@@ -685,16 +616,12 @@ class _Agenda extends StatelessWidget {
   Widget _row(BuildContext context, Rec e) {
     final c = context.colors;
     final start = _startOf(e), end = _endOf(e);
-    final shift = e['shift_min'] as int, flex = e['flex_min'] as int;
     final done = e['done'] == 1;
-    final late = shift > flex;
     final current = now != null && !done && start <= now! && now! < end;
     final category = categoryOf(e['category'] as String);
     final color = category.color;
-    // One quiet line: when, and how long. The buffer only matters once the block is running late.
-    final detail =
-        '${formatTime(start)} – ${formatTime(end)} · ${_span(end - start)}'
-        '${shift > 0 ? ' · $shift min late${late ? ', past buffer' : ''}' : ''}';
+    // One quiet line: when, and how long.
+    final detail = '${formatTime(start)} – ${formatTime(end)} · ${_span(end - start)}';
 
     return Semantics(
       button: true,
@@ -743,7 +670,7 @@ class _Agenda extends StatelessWidget {
                           detail,
                           variant: TextVariant.small,
                           maxLines: 1,
-                          color: shift > 0 ? (late ? c.warn : c.success) : c.textDim,
+                          color: c.textDim,
                           style: const TextStyle(fontSize: 12.5, fontFeatures: [FontFeature.tabularFigures()]),
                         ),
                       ],
@@ -912,8 +839,6 @@ String _daysLabel(String days) {
 
 /* ---------- Block form ---------- */
 
-const _buffers = [0, 10, 15, 30, 45];
-
 /// One-tap lengths: minutes → the short label on the button.
 const _lengths = {15: '15m', 30: '30m', 45: '45m', 60: '1h', 90: '1h30', 120: '2h', 180: '3h'};
 
@@ -958,7 +883,9 @@ class _BlockFormState extends State<BlockForm> {
   late String _category = widget.initial?['category'] as String? ?? 'work';
   late int _start = widget.initial?['start_min'] as int? ?? widget.start ?? 9 * 60;
   late int _end = widget.initial?['end_min'] as int? ?? widget.end ?? 10 * 60;
-  late int _flex = widget.initial?['flex_min'] as int? ?? 15;
+
+  /// Kept for blocks saved before the "running late" buffer was taken out; no longer shown.
+  late final int _flex = widget.initial?['flex_min'] as int? ?? 15;
   late bool _repeats = widget.repeat == 'always';
   late List<int> _days = switch (widget.initial?['days']) {
     final String days when days.isNotEmpty => days.split(',').map(int.parse).toList(),
@@ -1111,11 +1038,6 @@ class _BlockFormState extends State<BlockForm> {
             ],
           ),
         ],
-        _label('Buffer if you run late'),
-        _chips([
-          for (final b in _buffers)
-            AppChip(b == 0 ? 'None' : '$b min', selected: b == _flex, onPressed: () => setState(() => _flex = b)),
-        ]),
         if (_error.isNotEmpty) T(_error, color: context.colors.danger),
         AppButton(widget.initial == null ? 'Add to calendar' : 'Save changes', icon: Icons.check, onPressed: _save),
         if (widget.onDelete != null) AppButton(widget.deleteLabel, kind: ButtonKind.danger, onPressed: widget.onDelete),

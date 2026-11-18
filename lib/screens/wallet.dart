@@ -4,6 +4,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../date.dart';
 import '../db.dart';
+import '../jar.dart';
 import '../pickers.dart';
 import '../receipt.dart';
 import '../theme.dart';
@@ -49,6 +50,9 @@ class _WalletScreenState extends State<WalletScreen> with Live {
   Map<String, double> _spentByDay = {};
   List<Rec> _recent = [];
 
+  /// How full the jar was at the last load, to cheer when a quarter mark is passed; null before the first load.
+  double? _lastFill;
+
   /// The budget week runs Monday to Sunday.
   String get _weekFrom => weekStart(todayKey());
 
@@ -67,6 +71,24 @@ class _WalletScreenState extends State<WalletScreen> with Live {
     _all = all.first;
     _spentByDay = {for (final r in byDay) r['date'] as String: _num(r['total'])};
     _recent = recent;
+
+    final goal = appDb.setting<Map<String, Object?>?>('goal', null);
+    final fill = jarFill(_num(_all['saving']), goal == null ? null : _num(goal['target']));
+    final before = _lastFill;
+    _lastFill = fill;
+    final milestone = before == null ? null : jarMilestone(before, fill);
+    if (milestone != null) {
+      messengerKey.currentState
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(jarCheers[milestone]!),
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.fromLTRB(Spacing.lg, 0, Spacing.lg, 84),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.md)),
+          ),
+        );
+    }
   }
 
   String get _currency => appDb.setting('currency', r'$');
@@ -199,40 +221,63 @@ class _WalletScreenState extends State<WalletScreen> with Live {
         AppCard(
           children: [
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              spacing: Spacing.lg,
               children: [
-                Expanded(
-                  child: T(
-                    goal != null ? 'GOAL · ${(goal['name'] as String).toUpperCase()}' : 'SAVINGS',
-                    variant: TextVariant.label,
-                    dim: true,
-                    maxLines: 1,
-                  ),
+                SavingsJar(
+                  fill: jarFill(saved, goal == null ? null : _num(goal['target'])),
+                  onTap: () => openJarDrop(context, money: _money),
                 ),
-                AppButton(
-                  goal != null ? 'Edit goal' : 'Set a goal',
-                  kind: ButtonKind.plain,
-                  small: true,
-                  onPressed: _openGoal,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    spacing: Spacing.xs,
+                    children: [
+                      T(
+                        goal != null ? (goal['name'] as String).toUpperCase() : 'SAVINGS JAR',
+                        variant: TextVariant.label,
+                        dim: true,
+                        maxLines: 1,
+                      ),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: T(_money(saved), variant: TextVariant.number, maxLines: 1),
+                      ),
+                      T(
+                        goal != null
+                            ? '${(jarFill(saved, _num(goal['target'])) * 100).round()}% of ${_money(_num(goal['target']))}'
+                            : 'Set a goal and watch the jar fill up.',
+                        variant: TextVariant.small,
+                        dim: true,
+                      ),
+                      if (goal != null) T(_goalHint(goal, saved), variant: TextVariant.small, dim: true),
+                    ],
+                  ),
                 ),
               ],
             ),
-            Text.rich(
-              TextSpan(
-                text: _money(saved),
-                children: [
-                  if (goal != null)
-                    TextSpan(
-                      text: ' of ${_money(_num(goal['target']))}',
-                      style: textStyle(context, TextVariant.body, dim: true),
-                    ),
-                ],
-              ),
-              style: textStyle(context, TextVariant.number),
+            Row(
+              spacing: Spacing.sm,
+              children: [
+                Expanded(
+                  child: AppButton(
+                    'Drop in',
+                    icon: Icons.savings_outlined,
+                    small: true,
+                    onPressed: () => openJarDrop(context, money: _money),
+                  ),
+                ),
+                Expanded(
+                  child: AppButton(
+                    goal != null ? 'Edit goal' : 'Set a goal',
+                    kind: ButtonKind.soft,
+                    small: true,
+                    onPressed: _openGoal,
+                  ),
+                ),
+              ],
             ),
-            if (goal != null) ...[
-              ProgressBar(saved / _num(goal['target']), color: c.success),
-              T(_goalHint(goal, saved), variant: TextVariant.small, dim: true),
-            ],
           ],
         ),
         if (ready && _recent.isEmpty)
@@ -429,6 +474,12 @@ class _TxFormState extends State<_TxForm> {
   String _scanNote = '';
   bool _scanning = false;
 
+  /// The total and the other prices the last scan found, offered as chips so a misread total is one tap to fix.
+  List<double> _found = [];
+
+  /// An amount as it goes in the field: up to three decimals, for currencies that have them, and no trailing zeros.
+  static String _amountText(double n) => n.toStringAsFixed(3).replaceFirst(RegExp(r'\.?0+$'), '');
+
   @override
   void dispose() {
     _amount.dispose();
@@ -447,32 +498,39 @@ class _TxFormState extends State<_TxForm> {
     if (_scanning) return;
     FocusManager.instance.primaryFocus?.unfocus();
     setState(() => _scanning = true);
-    String note;
+    var note = _scanNote;
+    var found = _found;
     try {
       final text = await readReceiptText(camera: camera);
       if (!mounted) return;
-      if (text == null) {
-        note = '';
-      } else {
+      if (text != null) {
         final receipt = parseReceipt(text, currency: appDb.setting('currency', r'$'));
-        if (receipt.amount != null) {
-          // Up to three decimals, for currencies that have them; no trailing zeros.
-          _amount.text = receipt.amount!.toStringAsFixed(3).replaceFirst(RegExp(r'\.?0+$'), '');
-        }
+        if (receipt.amount != null) _amount.text = _amountText(receipt.amount!);
         if (receipt.label.isNotEmpty) _label.text = receipt.label;
         if (receipt.date != null) _date = receipt.date!;
         _kind = 'expense';
-        note = receipt.amount != null
-            ? 'Filled in from the receipt. Check it before saving.'
-            : 'No total could be read from that picture. Type the amount in.';
+        found = [?receipt.amount, ...receipt.amounts];
+        note = receipt.amount == null
+            ? (text.trim().isEmpty
+                  ? 'No writing showed up in that picture. Hold the receipt flat, fill the frame and try again.'
+                  : 'No total could be read. Type the amount in.')
+            : found.length > 1
+            ? 'Check the total before saving. Wrong one? Tap the right amount.'
+            : 'Filled in from the receipt. Check it before saving.';
       }
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      note = 'The picture could not be read. Try again in better light.';
+      debugPrint('Receipt scan: $e');
+      final denied = e.toString().contains('access_denied');
+      note = denied
+          ? 'HYETI may not use the ${camera ? 'camera' : 'photos'}. Allow it in Android settings, then try again.'
+          : 'The picture could not be read ($e). Try again, or type the amount in.';
+      found = [];
     }
     setState(() {
       _scanning = false;
       _scanNote = note;
+      _found = found;
     });
   }
 
@@ -503,6 +561,19 @@ class _TxFormState extends State<_TxForm> {
             ],
           ),
           if (_scanNote.isNotEmpty) T(_scanNote, variant: TextVariant.small, dim: true),
+          if (_found.length > 1)
+            Wrap(
+              spacing: Spacing.sm,
+              runSpacing: Spacing.sm,
+              children: [
+                for (final n in _found)
+                  AppChip(
+                    _amountText(n),
+                    selected: parseAmount(_amount.text) == n,
+                    onPressed: () => setState(() => _amount.text = _amountText(n)),
+                  ),
+              ],
+            ),
         ],
         Segmented<String>(value: _kind, onChanged: (v) => setState(() => _kind = v), options: _kindLabel),
         Field(

@@ -15,6 +15,7 @@ import 'package:personal_mobile_app/date.dart';
 import 'package:personal_mobile_app/db.dart';
 import 'package:personal_mobile_app/main.dart';
 import 'package:personal_mobile_app/sketch.dart';
+import 'package:personal_mobile_app/ui.dart';
 import 'package:personal_mobile_app/update.dart';
 import 'package:personal_mobile_app/watch_api.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -200,10 +201,6 @@ void main() {
     await tester.tap(find.text('Close'));
     await settle(tester);
 
-    await tester.tap(find.text('Week'));
-    await settle(tester);
-    await snap(tester, 'calendar_week');
-
     await tester.tap(find.text('Month'));
     await settle(tester);
     await snap(tester, 'calendar_month');
@@ -222,7 +219,18 @@ void main() {
     await settle(tester);
     await snap(tester, 'body_back');
 
+    await tester.runAsync(() async {
+      await appDb.setSetting('goal', {'name': 'New bike', 'target': 600});
+      await appDb.run(
+        "INSERT INTO transactions (date, kind, amount, label) VALUES (?, 'income', 900, 'Pay'), (?, 'saving', 380, '')",
+        [todayKey(), todayKey()],
+      );
+    });
     await openTab(tester, 'Wallet');
+    // The seeded savings pass half the goal, which is cheered; the picture is of the jar, not the message.
+    messengerKey.currentState?.hideCurrentSnackBar();
+    await settle(tester);
+    await snap(tester, 'wallet');
     await tester.tap(find.text('Add').hitTestable());
     await settle(tester);
     await snap(tester, 'wallet_add');
@@ -267,14 +275,18 @@ void main() {
     await tester.tap(find.byIcon(Icons.settings_outlined).hitTestable());
     await settle(tester);
     await snap(tester, 'settings');
+    await tester.tap(find.text('Appearance'));
+    await settle(tester);
 
     for (final theme in ['Web Slinger', 'Dark Knight', 'Five-Leaf Clover']) {
       await tester.tap(find.text(theme));
       await settle(tester);
       await snap(tester, 'theme_${theme.toLowerCase().replaceAll(RegExp('[^a-z]+'), '_')}');
     }
-    await tester.tap(find.byIcon(Icons.arrow_back));
-    await settle(tester);
+    for (var i = 0; i < 2; i++) {
+      await tester.tap(find.byIcon(Icons.arrow_back).hitTestable().last);
+      await settle(tester);
+    }
     await snap(tester, 'body_clover');
 
     showUpdateSheet(

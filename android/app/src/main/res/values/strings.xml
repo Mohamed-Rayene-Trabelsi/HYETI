@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="widget_up_next_name">Up next</string>
-    <string name="widget_up_next_description">The calendar block happening now or coming next, with a button to tick it off.</string>
-    <string name="widget_done">✓ Done</string>
+    <string name="widget_sketch_name">Sketch</string>
+    <string name="widget_sketch_description">Your newest sketch, and a button that opens a blank canvas. Sketches are saved to Notes.</string>
+    <string name="widget_sketch_new">＋ Draw</string>
+    <string name="widget_sketch_new_description">New sketch</string>
+    <string name="widget_sketch_picture_description">Your newest sketch. Tap to keep drawing.</string>
+    <string name="widget_sketch_empty">Sketch</string>
+    <string name="widget_sketch_last">Last sketch</string>
+    <string name="widget_sketch_hint">Tap to draw. Sketches are saved to Notes.</string>
+    <string name="widget_jar_name">Savings jar</string>
+    <string name="widget_jar_description">A jar of coins that fills up as you save towards your goal.</string>
+    <string name="widget_jar_add">＋ Drop in</string>
+    <string name="widget_jar_no_goal">Set a goal in Wallet to fill the jar.</string>
+    <string name="widget_jar_full">Jar full. Goal reached!</string>
 </resources>

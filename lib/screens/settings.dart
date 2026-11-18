@@ -1,36 +1,289 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../countries.dart';
+import '../date.dart';
 import '../db.dart';
 import '../football.dart';
 import '../football_pickers.dart';
+import '../pickers.dart';
 import '../theme.dart';
 import '../ui.dart';
 import '../update.dart';
+import 'calendar.dart';
 
-class SettingsScreen extends StatefulWidget {
+/// The settings menu: one row per area, each showing what it is set to now and opening its own page.
+class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
+  static void _open(BuildContext context, String title, WidgetBuilder body) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _SettingsPage(title: title, body: body),
+      ),
+    );
+  }
+
   @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Scaffold(
+      body: ListenableBuilder(
+        listenable: appDb,
+        builder: (context, _) {
+          final theme = _themeNames[appDb.setting('theme', 'system')] ?? 'Match phone';
+          final paletteId = appDb.setting('palette', 'indigo');
+          final palette = paletteId == 'custom'
+              ? 'Custom'
+              : (palettes.where((p) => p.id == paletteId).firstOrNull?.name ?? 'Indigo');
+          final country = appDb.setting('country', '');
+          final off = offWeekdays();
+          final football = footballPrefs();
+          final clubs = football.clubs.length;
+
+          return Screen(
+            title: 'Settings',
+            onBack: () => Navigator.of(context).pop(),
+            children: [
+              _MenuGroup(
+                children: [
+                  _MenuRow(
+                    icon: Icons.palette_outlined,
+                    tint: c.accent,
+                    label: 'Appearance',
+                    value: '$theme · $palette',
+                    onTap: () => _open(context, 'Appearance', (_) => const _AppearancePage()),
+                  ),
+                  _MenuRow(
+                    icon: Icons.public,
+                    tint: const Color(0xFF4FC3F7),
+                    label: 'Country and units',
+                    value: [
+                      if (country.isNotEmpty) country,
+                      appDb.setting('currency', r'$'),
+                      appDb.setting('weight_unit', 'kg'),
+                    ].join(' · '),
+                    onTap: () => _open(context, 'Country and units', (_) => const _CountryPage()),
+                  ),
+                  _MenuRow(
+                    icon: Icons.beach_access_outlined,
+                    tint: const Color(0xFFE6A23C),
+                    label: 'Days off',
+                    value: off.isEmpty ? 'None every week' : off.map((d) => weekdays[d]).join(', '),
+                    onTap: () => _open(context, 'Days off', (_) => const _DaysOff()),
+                  ),
+                ],
+              ),
+              _MenuGroup(
+                children: [
+                  _MenuRow(
+                    icon: Icons.sports_soccer,
+                    tint: const Color(0xFF3DBE7F),
+                    label: 'Football',
+                    value: football.off
+                        ? 'Off'
+                        : [
+                            ?football.nation?.name,
+                            if (clubs > 0) '$clubs ${clubs == 1 ? 'club' : 'clubs'}',
+                          ].join(' · '),
+                    onTap: () => _open(
+                      context,
+                      'Football',
+                      (_) => ListenableBuilder(
+                        listenable: appDb,
+                        builder: (_, _) => _FootballSettings(prefs: footballPrefs()),
+                      ),
+                    ),
+                  ),
+                  _MenuRow(
+                    icon: Icons.movie_outlined,
+                    tint: const Color(0xFFFF6FAE),
+                    label: 'Movie and series data',
+                    value: appDb.setting('tmdb_key', '').isNotEmpty ? 'Key saved' : 'Not set up',
+                    onTap: () => _open(context, 'Movie and series data', (_) => const KeysForm()),
+                  ),
+                ],
+              ),
+              _MenuGroup(
+                children: [
+                  _MenuRow(
+                    icon: Icons.info_outline,
+                    tint: c.textDim,
+                    label: 'About',
+                    value: 'Version $appVersion',
+                    onTap: () => _open(context, 'About', (_) => const UpdateCheck()),
+                  ),
+                  _MenuRow(
+                    icon: Icons.delete_outline,
+                    tint: c.danger,
+                    label: 'Erase all data',
+                    labelColor: c.danger,
+                    onTap: () => _open(context, 'Erase all data', (_) => const _ErasePage()),
+                  ),
+                ],
+              ),
+              const T(
+                'Everything is stored on this phone. No account, no sync, no ads.',
+                variant: TextVariant.small,
+                dim: true,
+                align: TextAlign.center,
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 }
 
-enum _Erase { idle, confirm, done }
+const _themeNames = {'system': 'Match phone', 'light': 'Light', 'dark': 'Dark'};
 
-class _SettingsScreenState extends State<SettingsScreen> {
+/// A card of menu rows with hairlines between them.
+class _MenuGroup extends StatelessWidget {
+  const _MenuGroup({required this.children});
+
+  final List<_MenuRow> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return AppCard(
+      padding: EdgeInsets.zero,
+      spacing: 0,
+      children: [
+        for (final (i, row) in children.indexed) ...[
+          if (i > 0) Container(height: 0.5, margin: const EdgeInsets.only(left: 64), color: c.border),
+          row,
+        ],
+      ],
+    );
+  }
+}
+
+class _MenuRow extends StatelessWidget {
+  const _MenuRow({
+    required this.icon,
+    required this.tint,
+    required this.label,
+    required this.onTap,
+    this.value = '',
+    this.labelColor,
+  });
+
+  final IconData icon;
+  final Color tint;
+  final String label;
+  final String value;
+  final VoidCallback onTap;
+  final Color? labelColor;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Semantics(
+      button: true,
+      label: value.isEmpty ? label : '$label: $value',
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: () {
+          tick();
+          onTap();
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(Spacing.md),
+          child: Row(
+            spacing: Spacing.md,
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: tint.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(Radii.button - 2),
+                ),
+                child: Icon(icon, size: 20, color: tint),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    T(
+                      label,
+                      variant: TextVariant.label,
+                      color: labelColor,
+                      maxLines: 1,
+                      style: const TextStyle(fontSize: 15),
+                    ),
+                    if (value.isNotEmpty) T(value, variant: TextVariant.small, dim: true, maxLines: 1),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, size: 20, color: c.textDim),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One settings area on a page of its own.
+class _SettingsPage extends StatelessWidget {
+  const _SettingsPage({required this.title, required this.body});
+
+  final String title;
+  final WidgetBuilder body;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Screen(
+        title: title,
+        onBack: () => Navigator.of(context).pop(),
+        children: [
+          AppCard(children: [body(context)]),
+        ],
+      ),
+    );
+  }
+}
+
+class _AppearancePage extends StatelessWidget {
+  const _AppearancePage();
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: appDb,
+      builder: (context, _) => FormColumn(
+        children: [
+          const T('Light or dark', variant: TextVariant.label),
+          Segmented<String>(
+            value: appDb.setting('theme', 'system'),
+            onChanged: (v) => appDb.setSetting('theme', v),
+            options: _themeNames,
+          ),
+          const T('Colours', variant: TextVariant.label),
+          const ThemePicker(),
+        ],
+      ),
+    );
+  }
+}
+
+class _CountryPage extends StatefulWidget {
+  const _CountryPage();
+
+  @override
+  State<_CountryPage> createState() => _CountryPageState();
+}
+
+class _CountryPageState extends State<_CountryPage> {
   final _currency = TextEditingController(text: appDb.setting('currency', r'$'));
-  _Erase _erase = _Erase.idle;
 
   @override
   void dispose() {
     _currency.dispose();
     super.dispose();
-  }
-
-  Future<void> _eraseAll() async {
-    await appDb.eraseAll();
-    _currency.text = r'$';
-    if (mounted) setState(() => _erase = _Erase.done);
   }
 
   void _chooseCountry() {
@@ -49,152 +302,73 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  /// The currency is saved as it is typed; an empty box keeps the last one.
+  void _currencyEdited(String text) {
+    final next = text.trim();
+    if (next.isNotEmpty && next != appDb.setting('currency', r'$')) appDb.setSetting('currency', next);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: appDb,
+      builder: (context, _) => FormColumn(
+        children: [
+          SettingRow(label: 'Country', value: appDb.setting('country', ''), icon: Icons.public, onTap: _chooseCountry),
+          Field(
+            label: 'Currency',
+            controller: _currency,
+            hint: r'$',
+            capitalization: TextCapitalization.characters,
+            autocorrect: false,
+            textInputAction: TextInputAction.done,
+            onChanged: _currencyEdited,
+          ),
+          const T('Set by your country. Type a symbol or code to use another.', variant: TextVariant.small, dim: true),
+          const T('Gym weights', variant: TextVariant.label),
+          Segmented<String>(
+            value: appDb.setting('weight_unit', 'kg'),
+            onChanged: (v) => appDb.setSetting('weight_unit', v),
+            options: const {'kg': 'Kilograms', 'lb': 'Pounds'},
+          ),
+          const T('Weights you already logged keep their numbers.', variant: TextVariant.small, dim: true),
+        ],
+      ),
+    );
+  }
+}
+
+/// Erasing gets a page of its own, so it can never be tapped by accident from the menu.
+class _ErasePage extends StatefulWidget {
+  const _ErasePage();
+
+  @override
+  State<_ErasePage> createState() => _ErasePageState();
+}
+
+class _ErasePageState extends State<_ErasePage> {
+  bool _done = false;
+
+  Future<void> _eraseAll() async {
+    await appDb.eraseAll();
+    if (mounted) setState(() => _done = true);
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    return Scaffold(
-      body: ListenableBuilder(
-        listenable: appDb,
-        builder: (context, _) {
-          final currency = appDb.setting('currency', r'$');
-          final country = appDb.setting('country', '');
-          return Screen(
-            title: 'Settings',
-            subtitle: 'Everything is stored on this phone',
-            onBack: () => Navigator.of(context).pop(),
-            children: [
-              Section(
-                title: 'Appearance',
-                children: [
-                  AppCard(
-                    children: [
-                      const T('Light or dark', variant: TextVariant.label),
-                      Segmented<String>(
-                        value: appDb.setting('theme', 'system'),
-                        onChanged: (v) => appDb.setSetting('theme', v),
-                        options: const {'system': 'Match phone', 'light': 'Light', 'dark': 'Dark'},
-                      ),
-                      const SizedBox(height: Spacing.xs),
-                      const T('Colours', variant: TextVariant.label),
-                      const ThemePicker(),
-                    ],
-                  ),
-                ],
-              ),
-              Section(
-                title: 'Country and units',
-                children: [
-                  AppCard(
-                    children: [
-                      const T('Country', variant: TextVariant.label),
-                      AppButton(
-                        country.isEmpty ? 'Choose a country' : country,
-                        kind: ButtonKind.soft,
-                        icon: Icons.public,
-                        onPressed: _chooseCountry,
-                      ),
-                      const T(
-                        'Choosing a country sets the currency below; you can still type another.',
-                        variant: TextVariant.small,
-                        dim: true,
-                      ),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        spacing: Spacing.sm,
-                        children: [
-                          Expanded(
-                            child: Field(
-                              label: 'Currency symbol or code',
-                              controller: _currency,
-                              hint: r'$',
-                              capitalization: TextCapitalization.characters,
-                              onChanged: (_) => setState(() {}),
-                            ),
-                          ),
-                          if (_currency.text.trim() != currency)
-                            AppButton(
-                              'Save',
-                              small: true,
-                              onPressed: () async {
-                                final next = _currency.text.trim().isEmpty ? r'$' : _currency.text.trim();
-                                _currency.text = next;
-                                await appDb.setSetting('currency', next);
-                              },
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: Spacing.xs),
-                      const T('Gym weights', variant: TextVariant.label),
-                      Segmented<String>(
-                        value: appDb.setting('weight_unit', 'kg'),
-                        onChanged: (v) => appDb.setSetting('weight_unit', v),
-                        options: const {'kg': 'Kilograms', 'lb': 'Pounds'},
-                      ),
-                      const T(
-                        'Changes the label only. Weights you already logged are not converted.',
-                        variant: TextVariant.small,
-                        dim: true,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              Section(
-                title: 'Football',
-                children: [
-                  AppCard(children: [_FootballSettings(prefs: footballPrefs())]),
-                ],
-              ),
-              const Section(
-                title: 'Movie and series data',
-                children: [
-                  AppCard(children: [KeysForm()]),
-                ],
-              ),
-              Section(
-                title: 'Your data',
-                children: [
-                  AppCard(
-                    children: [
-                      const T(
-                        'Erasing removes every block, note, workout, meal, transaction, saved title and setting '
-                        'from this phone. It cannot be undone.',
-                        dim: true,
-                      ),
-                      if (_erase == _Erase.done) T('Everything was erased.', color: c.success),
-                      if (_erase == _Erase.confirm)
-                        Wrap(
-                          spacing: Spacing.sm,
-                          runSpacing: Spacing.sm,
-                          children: [
-                            AppButton('Yes, erase everything', kind: ButtonKind.danger, onPressed: _eraseAll),
-                            AppButton(
-                              'Cancel',
-                              kind: ButtonKind.soft,
-                              onPressed: () => setState(() => _erase = _Erase.idle),
-                            ),
-                          ],
-                        )
-                      else
-                        AppButton(
-                          'Erase all data',
-                          kind: ButtonKind.danger,
-                          onPressed: () => setState(() => _erase = _Erase.confirm),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-              const Section(
-                title: 'About',
-                children: [
-                  AppCard(children: [UpdateCheck()]),
-                ],
-              ),
-            ],
-          );
-        },
-      ),
+    if (_done) return T('Everything was erased.', color: c.success);
+    return FormColumn(
+      children: [
+        T('Erase everything?', variant: TextVariant.heading, color: c.danger),
+        const T(
+          'Every block, note, sketch, workout, meal, transaction, saved title and setting is removed from this '
+          'phone. This cannot be undone.',
+          dim: true,
+        ),
+        AppButton('Erase everything', kind: ButtonKind.danger, icon: Icons.delete_outline, onPressed: _eraseAll),
+        AppButton('Keep my data', kind: ButtonKind.soft, onPressed: () => Navigator.of(context).pop()),
+      ],
     );
   }
 }
@@ -483,6 +657,9 @@ class _KeysFormState extends State<KeysForm> {
   final _omdb = TextEditingController(text: appDb.setting('omdb_key', ''));
   bool _saved = false;
 
+  /// The how-to text is long; it is open while the TMDB key is missing, and on request after that.
+  late bool _help = _tmdb.text.isEmpty;
+
   @override
   void dispose() {
     _tmdb.dispose();
@@ -498,17 +675,23 @@ class _KeysFormState extends State<KeysForm> {
   Widget build(BuildContext context) {
     return FormColumn(
       children: [
-        const T(
-          'Both keys are free and stay on this phone. They are only sent to the service they belong to.',
-          dim: true,
-        ),
-        const T('1. TMDB — hot lists and release dates', variant: TextVariant.label),
-        const T(
-          'Create an account at themoviedb.org, open Settings → API, request a developer key, '
-          'then copy the “API Key”.',
-          variant: TextVariant.small,
-          dim: true,
-        ),
+        const T('Both keys are free and stay on this phone.', dim: true),
+        if (!_help)
+          AppButton(
+            'How to get the keys',
+            kind: ButtonKind.plain,
+            small: true,
+            icon: Icons.help_outline,
+            onPressed: () => setState(() => _help = true),
+          ),
+        if (_help)
+          const T(
+            'TMDB (lists and release dates): make an account at themoviedb.org, open Settings → API, '
+            'request a developer key and copy the “API Key”.\n'
+            'OMDb (IMDb ratings, optional): at omdbapi.com choose API Key → Free; the key arrives by email.',
+            variant: TextVariant.small,
+            dim: true,
+          ),
         Field(
           label: 'TMDB key',
           controller: _tmdb,
@@ -516,13 +699,6 @@ class _KeysFormState extends State<KeysForm> {
           capitalization: TextCapitalization.none,
           autocorrect: false,
           onChanged: _edited,
-        ),
-        const T('2. OMDb — IMDb ratings', variant: TextVariant.label),
-        const T(
-          'Go to omdbapi.com, choose API Key → Free, and the key arrives by email. Free keys allow 1,000 '
-          'lookups a day; ratings are remembered for a week to stay well under that.',
-          variant: TextVariant.small,
-          dim: true,
         ),
         Field(
           label: 'OMDb key (optional)',
@@ -557,18 +733,6 @@ class _FootballSettings extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final leagues = [for (final id in prefs.leagues) ?topLeagues[id]];
-    Widget part(String label, String value, String empty, String key) => Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      spacing: Spacing.xs,
-      children: [
-        T(label, variant: TextVariant.label),
-        AppButton(
-          value.isEmpty ? empty : value,
-          kind: ButtonKind.soft,
-          onPressed: () => openFootballEdit(context, key),
-        ),
-      ],
-    );
     return FormColumn(
       children: [
         Segmented<bool>(
@@ -577,9 +741,27 @@ class _FootballSettings extends StatelessWidget {
           options: const {true: 'I follow football', false: "I don't"},
         ),
         if (!prefs.off) ...[
-          part('Your country', prefs.nation?.name ?? '', 'Choose your national team', 'nation'),
-          part('Favourite clubs', prefs.clubs.map((c) => c.name).join(', '), 'Choose clubs', 'clubs'),
-          part('Leagues', leagues.join(', '), 'Choose leagues', 'leagues'),
+          Column(
+            children: [
+              SettingRow(
+                label: 'National team',
+                value: prefs.nation?.name ?? '',
+                onTap: () => openFootballEdit(context, 'nation'),
+              ),
+              SettingRow(
+                label: 'Clubs',
+                value: prefs.clubs.map((c) => c.name).join(', '),
+                divider: true,
+                onTap: () => openFootballEdit(context, 'clubs'),
+              ),
+              SettingRow(
+                label: 'Leagues',
+                value: leagues.join(', '),
+                divider: true,
+                onTap: () => openFootballEdit(context, 'leagues'),
+              ),
+            ],
+          ),
           const T(
             'Matches of your country and clubs go on your calendar as they come within two weeks. '
             'Only what you follow is downloaded.',
@@ -588,6 +770,90 @@ class _FootballSettings extends StatelessWidget {
           ),
         ] else
           const T('The Football tab is hidden from Watch.', variant: TextVariant.small, dim: true),
+      ],
+    );
+  }
+}
+
+/// Which days are off: weekdays that always are, and single dates such as holidays. On a day off the calendar
+/// leaves work blocks out.
+class _DaysOff extends StatefulWidget {
+  const _DaysOff();
+
+  @override
+  State<_DaysOff> createState() => _DaysOffState();
+}
+
+class _DaysOffState extends State<_DaysOff> with Live {
+  List<String> _dates = [];
+
+  @override
+  Future<void> load() async {
+    final rows = await appDb.query('SELECT date FROM day_offs WHERE date >= ? ORDER BY date', [todayKey()]);
+    _dates = [for (final r in rows) r['date'] as String];
+  }
+
+  void _toggleWeekday(int day) {
+    final days = offWeekdays();
+    appDb.setSetting('off_weekdays', days.contains(day) ? (days..remove(day)) : ([...days, day]..sort()));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final weekly = offWeekdays();
+    return FormColumn(
+      children: [
+        const T('Every week', variant: TextVariant.label),
+        Wrap(
+          spacing: Spacing.sm,
+          runSpacing: Spacing.sm,
+          children: [
+            for (final (i, name) in weekdays.indexed)
+              AppChip(name, selected: weekly.contains(i), onPressed: () => _toggleWeekday(i)),
+          ],
+        ),
+        const T('Other days off', variant: TextVariant.label),
+        if (_dates.isNotEmpty)
+          Column(
+            children: [
+              for (final (i, date) in _dates.indexed)
+                ListRow(
+                  divider: i > 0,
+                  children: [
+                    Expanded(child: T('${formatDay(date)} ${date.substring(0, 4)}', maxLines: 1)),
+                    Semantics(
+                      button: true,
+                      label: 'Remove ${formatDay(date)}',
+                      excludeSemantics: true,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () async {
+                          tick();
+                          await appDb.run('DELETE FROM day_offs WHERE date = ?', [date]);
+                          showUndo(
+                            '${formatDay(date)} is a normal day again',
+                            () => appDb.run('INSERT OR IGNORE INTO day_offs (date) VALUES (?)', [date]),
+                          );
+                        },
+                        child: Padding(
+                          padding: const EdgeInsets.all(Spacing.xs),
+                          child: Icon(Icons.close, size: 20, color: c.textDim),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        DateField(
+          label: 'Add a day off',
+          value: '',
+          onChanged: (date) {
+            if (date.isNotEmpty) appDb.run('INSERT OR IGNORE INTO day_offs (date) VALUES (?)', [date]);
+          },
+        ),
+        const T('On a day off, work blocks are left off your calendar.', variant: TextVariant.small, dim: true),
       ],
     );
   }

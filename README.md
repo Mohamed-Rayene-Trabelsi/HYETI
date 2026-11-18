@@ -6,7 +6,7 @@ A personal planner for Android. Calendar, gym and food log, wallet, watchlist an
 
 <p>
   <img src="test/preview/calendar_day.png" width="19%" alt="Calendar, day view">
-  <img src="test/preview/calendar_week.png" width="19%" alt="Calendar, week view">
+  <img src="test/preview/calendar_month.png" width="19%" alt="Calendar, month view">
   <img src="test/preview/body_front.png" width="19%" alt="Body tab with the muscle map">
   <img src="test/preview/notes_sketch.png" width="19%" alt="A sketch note being drawn">
   <img src="test/preview/theme_dark_knight.png" width="19%" alt="Settings with the colour themes">
@@ -14,13 +14,13 @@ A personal planner for Android. Calendar, gym and food log, wallet, watchlist an
 
 ## What's in it
 
-- **Home-screen widget.** "Up next" shows the block happening now or coming next and the day's progress, with a Done button.
-- **Calendar.** Set up a weekly routine once and it fills in every day. Day, week and month views. Blocks are added from one sheet: pick one of sixteen activities, a start time and a one-tap length. If you're running late you can push the rest of the day back, and you can mark days off.
+- **Home-screen widgets.** "Sketch" shows your newest sketch; tap it to keep drawing, or tap Draw for a blank canvas. Sketches are saved to Notes. "Savings jar" shows a jar of coins filling towards your savings goal, with a button to drop more in.
+- **Calendar.** Set up a weekly routine once and it fills in every day. Day and month views. Blocks are added from one sheet: pick one of sixteen activities, a start time and a one-tap length. Days off (weekdays and single dates) are set in Settings, and work blocks stay off them.
 - **Body.** A muscle map that shows what you trained and what has rested long enough, with exercise suggestions and set logging. There is a countdown for your gym membership, and a nutrition side with a calorie and macro plan and a food log.
-- **Wallet.** Income, spending and savings, a weekly budget and a savings goal. Photograph a receipt and the amount, shop and date are filled in for you; the picture is read on the phone and never leaves it.
+- **Wallet.** Income, spending and savings, a weekly budget, and a savings goal shown as a jar of coins that fills up (and cheers at every quarter) as you drop money in. Photograph a receipt and the amount, shop and date are filled in for you; the picture is read on the phone and never leaves it.
 - **Watch.** A watchlist for shows (movies and series), anime and football, with what's popular, what's coming out, and your football: the first time, pick your country, your clubs and any of the five big leagues, and see the next two weeks of their matches. Your country's and clubs' matches go on your calendar by themselves. Not into football? Say so once and the tab goes away. Search runs as you type. A watch night or a match can go straight onto the calendar.
 - **Notes.** Written notes and finger-drawn sketches, which you can search and pin. Sketches have six pen colours, three pen sizes, an eraser, and undo and redo.
-- **Settings.** Light or dark, eight colour themes (one of them yours to mix), your country and its currency, units, and a button that erases everything.
+- **Settings.** Light or dark, eight colour themes (one of them yours to mix), your country and its currency, units, days off, and a button that erases everything.
 
 ## Install
 

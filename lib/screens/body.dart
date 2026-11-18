@@ -38,7 +38,6 @@ class _BodyScreenState extends State<BodyScreen> {
     final gym = _tab == 'gym';
     return Screen(
       title: 'Body',
-      subtitle: formatDay(todayKey()),
       fabLabel: gym ? 'Log set' : 'Log food',
       onFab: gym ? _logSet : () => openFoodSheet(context),
       children: [
@@ -623,7 +622,8 @@ class _SetFormState extends State<_SetForm> with Live {
               T(preset.tip, variant: TextVariant.small, dim: true),
             ],
           ),
-        if (_last != null)
+        // A set from today is already listed under "Today" below.
+        if (_last != null && _last!['date'] != todayKey())
           T(
             'Last time (${relativeDay(_last!['date'] as String).toLowerCase()}): '
             '${plainNumber(_last!['weight'] as num)} $unit × ${_last!['reps']}',

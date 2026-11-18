@@ -126,6 +126,7 @@ void main() {
     await settle(tester);
     await tester.tap(find.byIcon(Icons.settings_outlined));
     await settle(tester);
+    await tapText(tester, 'About');
 
     await tapText(tester, 'Check for updates');
     expect(find.text('This is the newest version.'), findsOneWidget);

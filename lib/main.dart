@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import 'db.dart';
 import 'football.dart';
+import 'launch.dart';
 import 'screens/body.dart';
 import 'screens/calendar.dart';
 import 'screens/notes.dart';
@@ -40,6 +41,7 @@ class LifeApp extends StatelessWidget {
           title: 'HYETI',
           debugShowCheckedModeBanner: false,
           scaffoldMessengerKey: messengerKey,
+          navigatorKey: navigatorKey,
           theme: buildTheme(Brightness.light, palette),
           darkTheme: buildTheme(Brightness.dark, palette),
           themeMode: switch (choice) {
@@ -107,6 +109,8 @@ class _AppTabsState extends State<AppTabs> with WidgetsBindingObserver {
     // Once a day: the coming matches of the national team and clubs followed go on the calendar.
     // Offline, it tries again next time.
     syncFootballCalendar().catchError((_) {});
+    // A tap on the Sketch home-screen widget opens the sketch editor.
+    WidgetsBinding.instance.addPostFrameCallback((_) => listenForWidgetTaps());
   }
 
   @override

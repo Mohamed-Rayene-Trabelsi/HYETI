@@ -260,9 +260,10 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.settings_outlined).hitTestable());
     await settle(tester);
+    await tapText(tester, 'Football');
     await tapText(tester, 'I follow football');
     expect(footballPrefs().off, isFalse);
-    expect(find.text('Choose your national team'), findsOneWidget);
+    expect(find.text('National team'), findsOneWidget);
   });
 
   test('a kick-off is shown in local time', () {

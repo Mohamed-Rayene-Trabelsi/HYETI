@@ -1,7 +1,10 @@
+import 'dart:ui' show Rect;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:personal_mobile_app/body_map.dart';
 import 'package:personal_mobile_app/date.dart';
 import 'package:personal_mobile_app/muscles.dart';
+import 'package:personal_mobile_app/jar.dart';
 import 'package:personal_mobile_app/receipt.dart';
 import 'package:personal_mobile_app/screens/nutrition.dart';
 import 'package:personal_mobile_app/screens/wallet.dart';
@@ -77,6 +80,23 @@ void main() {
     });
   });
 
+  group('savings jar', () {
+    test('fills towards the goal and stops at full', () {
+      expect(jarFill(50, 200), 0.25);
+      expect(jarFill(500, 200), 1);
+      expect(jarFill(50, null), 0);
+      expect(jarFill(50, 0), 0);
+    });
+
+    test('cheers once for each quarter passed, the biggest first', () {
+      expect(jarMilestone(0.2, 0.3), 25);
+      expect(jarMilestone(0.3, 0.4), isNull);
+      expect(jarMilestone(0.1, 0.8), 75);
+      expect(jarMilestone(0.9, 1), 100);
+      expect(jarMilestone(0.6, 0.4), isNull);
+    });
+  });
+
   group('receipts', () {
     test('finds the total, the shop and the date', () {
       final r = parseReceipt('''
@@ -114,6 +134,42 @@ CHANGE         3.79
       final empty = parseReceipt('hello');
       expect(empty.amount, isNull);
       expect(empty.date, isNull);
+    });
+
+    test('puts a total back on the row its label was printed on, even in a tilted photo', () {
+      // The reader returns the left column, then the right one; the photo leans down to the right by 5%.
+      Rect box(double x, double y, double w) => Rect.fromLTWH(x, y + x * 0.05, w, 30);
+      final text = receiptRows([
+        ('MAGASIN GENERAL', box(100, 20, 400), 0.05),
+        ('Eau', box(40, 100, 80), 0.05),
+        ('Pain', box(40, 150, 80), 0.05),
+        ('TOTAL TTC', box(40, 200, 200), 0.05),
+        ('1,200', box(600, 100, 90), 0.05),
+        ('0,450', box(600, 150, 90), 0.05),
+        ('1,650', box(600, 200, 90), 0.05),
+      ]);
+      expect(text, 'MAGASIN GENERAL\nEau  1,200\nPain  0,450\nTOTAL TTC  1,650');
+      expect(parseReceipt(text, currency: 'TND').amount, 1.65);
+      expect(receiptRows([]), '');
+    });
+
+    test('copes with the text reader\'s slips', () {
+      // Letters for digits, a spaced-out decimal mark, a currency stuck to the number, a misread label.
+      expect(parseReceipt('Cafe\nT0TAL  12.5O').amount, 12.5);
+      expect(parseReceipt('Cafe\nTOTAI 8 . 75 EUR').amount, 8.75);
+      expect(parseReceipt('Cafe\nNET A PAVER  14,500DT').amount, 14.5);
+      expect(parseReceipt('Cafe\nTotal  l6.21 \$').amount, 16.21);
+      // A custom three-decimal symbol, and a receipt that names its dinars when the setting is something else.
+      expect(parseReceipt('Cafe\nTotal 3,500', currency: 'DT').amount, 3.5);
+      expect(parseReceipt('Cafe\nTotal 3,500 TND').amount, 3.5);
+      // Tax and subtotal lines are still not the total, however they are spelled.
+      expect(parseReceipt('Sous-total 10,000\nTVA 1,900\nNet à payer 11,900', currency: 'TND').amount, 11.9);
+    });
+
+    test('offers the other prices on the receipt to pick from', () {
+      final r = parseReceipt('Shop\nTea 4.50\nCake 6.25\nTOTAL 10.75\nCASH 20.00\nCHANGE 9.25');
+      expect(r.amount, 10.75);
+      expect(r.amounts, [6.25, 4.5]);
     });
   });
 

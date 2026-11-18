@@ -241,7 +241,8 @@ class _WatchScreenState extends State<WatchScreen> with Live {
 
     return Screen(
       title: 'Watchlist',
-      subtitle: titles.isEmpty ? 'Shows, anime and football' : '${titles.length} saved · ${upcoming.length} coming up',
+      // The tabs below already say what is here; the subtitle only counts what you saved.
+      subtitle: titles.isEmpty ? null : '${titles.length} saved · ${upcoming.length} coming up',
       // Once a key is saved nothing here asks for one again; both stay editable in Settings.
       actions: [
         if (tmdbKey.isEmpty && omdbKey.isEmpty)
