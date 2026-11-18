@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:personal_mobile_app/body_map.dart';
 import 'package:personal_mobile_app/date.dart';
+import 'package:personal_mobile_app/muscles.dart';
 import 'package:personal_mobile_app/receipt.dart';
 import 'package:personal_mobile_app/screens/nutrition.dart';
 import 'package:personal_mobile_app/screens/wallet.dart';
@@ -112,6 +114,20 @@ CHANGE         3.79
       final empty = parseReceipt('hello');
       expect(empty.amount, isNull);
       expect(empty.date, isNull);
+    });
+  });
+
+  group('body figure', () {
+    test('every muscle can be picked on one side or the other, and the back only on the back', () {
+      for (final m in muscles) {
+        expect(muscleOnSide(m, 'front') || muscleOnSide(m, 'back'), isTrue, reason: m);
+      }
+      expect(muscleOnSide('Chest', 'front'), isTrue);
+      expect(muscleOnSide('Chest', 'back'), isFalse);
+      expect(muscleOnSide('Shoulders', 'front') && muscleOnSide('Shoulders', 'back'), isTrue);
+      // The trapezius drawn beside the neck on the front does not make the back pickable there.
+      expect(muscleOnSide('Back', 'front'), isFalse);
+      expect(muscleOnSide('Back', 'back'), isTrue);
     });
   });
 }

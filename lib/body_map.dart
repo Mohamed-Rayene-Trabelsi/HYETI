@@ -192,6 +192,10 @@ final _hits = <String, List<(String, List<Rect>)>>{
   ],
 };
 
+/// Whether [muscle] can be picked on [side] of the figure; some are on both.
+/// The sliver of trapezius on the front does not count: the back is shown on the back.
+bool muscleOnSide(String muscle, String side) => _hits[side]!.any((hit) => hit.$1 == muscle);
+
 /// The figure alone, not tappable: a small picture of which muscles a workout trains.
 /// [lit] muscles are drawn in the accent colour (or [litColor]).
 class BodyFigure extends StatelessWidget {
