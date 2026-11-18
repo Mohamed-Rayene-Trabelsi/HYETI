@@ -1,4 +1,4 @@
-HYETI is a Flutter app for Android only. All data stays on the phone in SQLite; the only network calls are the Watch tab's lookups (AniList, TMDB, OMDb, and ESPN's public scoreboard for football fixtures, which is unofficial and needs no key) and the update check, which asks GitHub for the latest release.
+HYETI is a Flutter app for Android only. All data stays on the phone in SQLite; the only network calls are the Watch tab's lookups (AniList, TMDB, OMDb, and FotMob for football, which is unofficial and needs no key) and the update check, which asks GitHub for the latest release.
 
 ## Flutter has changed — check before you trust memory
 
@@ -37,7 +37,7 @@ The toolchain (`flutter`, JDK 17, the Android SDK) is on the user PATH; where it
 - `lib/ui.dart` — shared widgets (`Screen`, `AppCard`, `AppButton`, `Field`, `showSheet`, …). Use these rather than raw Material widgets so screens stay consistent.
 - `lib/theme.dart` — colour themes (`palettes`, `customPalette`), the colours in use (`context.colors`), spacing, calendar categories. Never hard-code a colour a theme should control; take it from `context.colors`.
 - `lib/date.dart` — date helpers. Dates are `'YYYY-MM-DD'` strings; times are minutes since midnight.
-- `lib/calendar_views.dart`, `lib/pickers.dart`, `lib/body_map.dart`, `lib/muscles.dart`, `lib/watch_api.dart`, `lib/countries.dart` (country → currency), `lib/receipt.dart` (receipt scan: camera, on-device text reading, picking out the total), `lib/sketch.dart` (sketch notes: strokes, painter, drawing page), `lib/update.dart` (the app's version, the check for a newer GitHub release, the sheet that offers it) — feature pieces.
+- `lib/calendar_views.dart`, `lib/pickers.dart`, `lib/body_map.dart`, `lib/muscles.dart`, `lib/watch_api.dart`, `lib/countries.dart` (country → currency), `lib/receipt.dart` (receipt scan: camera, on-device text reading, picking out the total), `lib/sketch.dart` (sketch notes: strokes, painter, drawing page), `lib/football.dart` (football from FotMob: what is followed, team search, fixtures, and putting the national team's and clubs' matches on the calendar once a day), `lib/football_pickers.dart` (the football setup and the pickers Settings reuses), `lib/update.dart` (the app's version, the check for a newer GitHub release, the sheet that offers it) — feature pieces.
 - `android/app/src/main/kotlin/.../UpNextWidget.kt` — the "Up next" home-screen widget, in Kotlin. It reads and writes `life.db` directly (no Dart runs), so a change to the `events`, `routines` or `day_offs` tables, to the category colours, or to the "now / next" rules in `_DayCard` must be repeated there. It cannot be previewed or tested without a phone.
 
 ## Rules
@@ -47,6 +47,7 @@ The toolchain (`flutter`, JDK 17, the Android SDK) is on the user PATH; where it
 - Schema changes: bump `_databaseVersion` in `lib/db.dart` and add an `if (from < N)` block. Never edit an existing block — installed apps have already run it.
 - A screen's main action goes in `Screen`'s floating button (`fabLabel` / `onFab`), not in the content.
 - Deleting something the user made goes through `deleteWithUndo` (or `showUndo`) so it can be taken back.
+- Football downloads only what the person follows or searches for (one request per team or league), never a whole day of every match. What is followed is changed in Settings, not with filters on the Football tab.
 - Do not add widgets that capture horizontal drags (swipe-to-dismiss, horizontal lists): sideways swipes belong to tab switching.
 - The formatter width is 120 (`analysis_options.yaml`). Run `dart format lib test` after edits.
 - Android only. Do not add iOS, web or desktop platform folders.

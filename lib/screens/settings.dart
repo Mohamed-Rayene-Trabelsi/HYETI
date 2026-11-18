@@ -2,6 +2,8 @@ import 'package:material_ui/material_ui.dart';
 
 import '../countries.dart';
 import '../db.dart';
+import '../football.dart';
+import '../football_pickers.dart';
 import '../theme.dart';
 import '../ui.dart';
 import '../update.dart';
@@ -135,6 +137,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ],
                   ),
+                ],
+              ),
+              Section(
+                title: 'Football',
+                children: [
+                  AppCard(children: [_FootballSettings(prefs: footballPrefs())]),
                 ],
               ),
               const Section(
@@ -535,6 +543,51 @@ class _KeysFormState extends State<KeysForm> {
             widget.onSaved?.call();
           },
         ),
+      ],
+    );
+  }
+}
+
+/// What football is followed. The Football tab itself has no filters; this is where it is changed.
+class _FootballSettings extends StatelessWidget {
+  const _FootballSettings({required this.prefs});
+
+  final FootballPrefs prefs;
+
+  @override
+  Widget build(BuildContext context) {
+    final leagues = [for (final id in prefs.leagues) ?topLeagues[id]];
+    Widget part(String label, String value, String empty, String key) => Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      spacing: Spacing.xs,
+      children: [
+        T(label, variant: TextVariant.label),
+        AppButton(
+          value.isEmpty ? empty : value,
+          kind: ButtonKind.soft,
+          onPressed: () => openFootballEdit(context, key),
+        ),
+      ],
+    );
+    return FormColumn(
+      children: [
+        Segmented<bool>(
+          value: !prefs.off,
+          onChanged: (on) => saveFootballPrefs(prefs.copyWith(setUp: true, off: !on)),
+          options: const {true: 'I follow football', false: "I don't"},
+        ),
+        if (!prefs.off) ...[
+          part('Your country', prefs.nation?.name ?? '', 'Choose your national team', 'nation'),
+          part('Favourite clubs', prefs.clubs.map((c) => c.name).join(', '), 'Choose clubs', 'clubs'),
+          part('Leagues', leagues.join(', '), 'Choose leagues', 'leagues'),
+          const T(
+            'Matches of your country and clubs go on your calendar as they come within two weeks. '
+            'Only what you follow is downloaded.',
+            variant: TextVariant.small,
+            dim: true,
+          ),
+        ] else
+          const T('The Football tab is hidden from Watch.', variant: TextVariant.small, dim: true),
       ],
     );
   }

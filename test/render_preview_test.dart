@@ -101,31 +101,19 @@ Future<void> seed() async {
   }
 }
 
-/// Stands in for the Watch tab's online sources: a few movies from TMDB and a few fixtures from ESPN.
+/// Stands in for the Watch tab's online sources: a few movies from TMDB and a few fixtures from FotMob.
 void fakeWatchServices() {
-  final soon = DateTime.now().toUtc().add(const Duration(days: 3));
-  String kickOff(int hour) => '${toKey(soon)}T${hour.toString().padLeft(2, '0')}:00Z';
-  Map<String, Object?> match(int id, int hour, String home, String away) => {
+  final today = DateTime.now();
+  String kickOff(int days, int hour) =>
+      DateTime(today.year, today.month, today.day + days, hour).toUtc().toIso8601String();
+  Map<String, Object?> match(int id, int days, int hour, (int, String) home, (int, String) away) => {
     'id': '$id',
-    'date': kickOff(hour),
-    'competitions': [
-      {
-        'status': {
-          'type': {'state': 'pre'},
-        },
-        'competitors': [
-          {
-            'homeAway': 'home',
-            'team': {'displayName': home},
-          },
-          {
-            'homeAway': 'away',
-            'team': {'displayName': away},
-          },
-        ],
-      },
-    ],
+    'home': {'id': home.$1, 'name': home.$2},
+    'away': {'id': away.$1, 'name': away.$2},
+    'tournament': {'name': 'Africa Cup of Nations Qualification'},
+    'status': {'utcTime': kickOff(days, hour), 'finished': false, 'started': false, 'cancelled': false},
   };
+  const tunisia = (6719, 'Tunisia'), uganda = (5890, 'Uganda');
   httpClient = MockClient((request) async {
     final Object body;
     if (request.url.host == 'api.themoviedb.org') {
@@ -147,12 +135,32 @@ void fakeWatchServices() {
         ],
       };
     } else {
-      body = {
-        'events': switch (request.url.pathSegments[5]) {
-          'uefa.champions' => [match(1, 19, 'Real Madrid', 'Manchester City'), match(2, 19, 'Inter Milan', 'Arsenal')],
-          'eng.1' => [match(3, 12, 'Liverpool', 'Chelsea'), match(4, 15, 'Newcastle United', 'Tottenham Hotspur')],
-          'esp.1' => [match(5, 14, 'Barcelona', 'Atletico Madrid')],
-          _ => [],
+      final q = request.url.queryParameters;
+      body = switch (request.url.path) {
+        '/api/data/search/suggest' => [
+          {
+            'suggestions': [
+              {'type': 'team', 'id': '6719', 'name': 'Tunisia', 'leagueId': 0},
+              {'type': 'team', 'id': '1129301', 'name': 'Tunisia (W)', 'leagueId': 0},
+            ],
+          },
+        ],
+        '/api/data/teams' => {
+          'fixtures': {
+            'allFixtures': {
+              'fixtures': q['id'] == '6719' ? [match(1, 4, 19, tunisia, uganda)] : [],
+            },
+          },
+        },
+        _ => {
+          'details': {'name': 'Premier League'},
+          'fixtures': {
+            'allMatches': [
+              match(2, 1, 13, (8650, 'Liverpool'), (8455, 'Chelsea')),
+              match(3, 1, 16, (10261, 'Newcastle United'), (8586, 'Tottenham Hotspur')),
+              match(4, 2, 17, (9825, 'Arsenal'), (8456, 'Manchester City')),
+            ],
+          },
         },
       };
     }
@@ -234,18 +242,26 @@ void main() {
     await snap(tester, 'watch_shows');
     await tester.tap(find.text('Football').hitTestable());
     await settle(tester);
-    await tester.tap(find.text('Save').hitTestable().first);
-    await settle(tester);
-    await snap(tester, 'watch_football');
-    await tester.tap(find.text('Follow a country').hitTestable());
+    await snap(tester, 'football_welcome');
+    await tester.tap(find.text('Get started').hitTestable());
     await settle(tester);
     await tester.enterText(find.byType(TextField).hitTestable().first, 'tun');
+    await tester.pump(const Duration(milliseconds: 500));
     await settle(tester);
     await tester.tap(find.text('Tunisia').hitTestable());
     await settle(tester);
-    await snap(tester, 'watch_countries');
-    await tester.tap(find.text('Close').hitTestable());
+    await snap(tester, 'football_setup');
+    await tester.tap(find.text('Next').hitTestable());
     await settle(tester);
+    await tester.tap(find.text('Skip').hitTestable());
+    await settle(tester);
+    await tester.tap(find.text('Premier League').hitTestable());
+    await settle(tester);
+    await tester.tap(find.text('Done').hitTestable());
+    await settle(tester);
+    await tester.tap(find.text('Save').hitTestable().first);
+    await settle(tester);
+    await snap(tester, 'watch_football');
     await openTab(tester, 'Body');
 
     await tester.tap(find.byIcon(Icons.settings_outlined).hitTestable());

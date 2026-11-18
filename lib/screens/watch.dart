@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -5,6 +6,8 @@ import 'package:material_ui/material_ui.dart';
 
 import '../date.dart';
 import '../db.dart';
+import '../football.dart';
+import '../football_pickers.dart';
 import '../pickers.dart';
 import '../theme.dart';
 import '../ui.dart';
@@ -217,8 +220,11 @@ class _WatchScreenState extends State<WatchScreen> with Live {
   Widget build(BuildContext context) {
     final tmdbKey = appDb.setting('tmdb_key', '');
     final omdbKey = appDb.setting('omdb_key', '');
-    final mine = _tab == 'mine';
-    final kind = _tab == 'shows' ? _showKind : _tab;
+    final football = footballPrefs();
+    // Someone who does not follow football never sees the tab; Settings can bring it back.
+    final tab = football.off && _tab == 'match' ? 'mine' : _tab;
+    final mine = tab == 'mine';
+    final kind = tab == 'shows' ? _showKind : tab;
     final today = todayKey();
     // One card per title. A title with any entry still ahead goes under "Coming up", led by that entry;
     // otherwise it goes under "Out now or undated". It is never in both.
@@ -245,9 +251,9 @@ class _WatchScreenState extends State<WatchScreen> with Live {
       onFab: _openAdd,
       children: [
         Segmented<String>(
-          value: _tab,
+          value: tab,
           onChanged: (v) => setState(() => _tab = v),
-          options: const {'mine': 'My list', 'shows': 'Shows', 'anime': 'Anime', 'match': 'Football'},
+          options: {'mine': 'My list', 'shows': 'Shows', 'anime': 'Anime', if (!football.off) 'match': 'Football'},
         ),
         if (mine) ...[
           if (ready && _items.isEmpty)
@@ -263,7 +269,14 @@ class _WatchScreenState extends State<WatchScreen> with Live {
               title: upcoming.isEmpty ? 'Saved' : 'Out now or undated',
               children: [for (final copies in rest) _itemCard(copies)],
             ),
-        ] else if (_tab == 'shows' && tmdbKey.isEmpty)
+        ] else if (tab == 'match')
+          _FootballView(
+            prefs: football,
+            isSaved: (f) => _savedAs(f) != null,
+            onSave: _saveFound,
+            onUnsave: _unsaveFound,
+          )
+        else if (tab == 'shows' && tmdbKey.isEmpty)
           Empty(
             icon: Icons.key_outlined,
             title: omdbKey.isEmpty ? 'A free key is needed' : 'A TMDB key is needed',
@@ -274,7 +287,7 @@ class _WatchScreenState extends State<WatchScreen> with Live {
             action: AppButton(omdbKey.isEmpty ? 'Add a key' : 'Add TMDB key', onPressed: _openKeys),
           )
         else ...[
-          if (_tab == 'shows')
+          if (tab == 'shows')
             Segmented<String>(
               value: _showKind,
               onChanged: (v) => setState(() => _showKind = v),
@@ -285,7 +298,6 @@ class _WatchScreenState extends State<WatchScreen> with Live {
             kind: kind,
             tmdbKey: tmdbKey,
             omdbKey: omdbKey,
-            countries: appDb.setting<List>('football_countries', const []).cast<String>(),
             isSaved: (f) => _savedAs(f) != null,
             onSave: _saveFound,
             onUnsave: _unsaveFound,
@@ -417,7 +429,6 @@ class _Browser extends StatefulWidget {
     required this.kind,
     required this.tmdbKey,
     required this.omdbKey,
-    this.countries = const [],
     required this.isSaved,
     required this.onSave,
     required this.onUnsave,
@@ -427,9 +438,6 @@ class _Browser extends StatefulWidget {
   final String kind;
   final String tmdbKey;
   final String omdbKey;
-
-  /// The countries whose football is followed, by name.
-  final List<String> countries;
 
   /// Whether a found title is on the list already.
   final bool Function(Found) isSaved;
@@ -445,10 +453,6 @@ class _BrowserState extends State<_Browser> {
   final _text = TextEditingController();
   String _search = '';
   String _mode = 'hot';
-
-  /// The football being shown: '' for every competition offered and the countries followed,
-  /// a competition such as 'eng.1', or one country such as 'country:Tunisia'.
-  String _filter = '';
 
   /// Runs the search a moment after the last keystroke, so typing a word asks once rather than per letter.
   Timer? _typing;
@@ -488,13 +492,7 @@ class _BrowserState extends State<_Browser> {
   @override
   void didUpdateWidget(_Browser old) {
     super.didUpdateWidget(old);
-    if (old.tmdbKey != widget.tmdbKey || old.omdbKey != widget.omdbKey) {
-      _fetch();
-    } else if (widget.kind == 'match' && old.countries.join('|') != widget.countries.join('|')) {
-      // A country dropped while its matches were shown leaves nothing to show; go back to everything.
-      if (_filter.startsWith('country:') && !widget.countries.contains(_filter.substring(8))) _filter = '';
-      if (_filter.isEmpty || _filter.startsWith('country:')) _fetch();
-    }
+    if (old.tmdbKey != widget.tmdbKey || old.omdbKey != widget.omdbKey) _fetch();
   }
 
   @override
@@ -526,7 +524,6 @@ class _BrowserState extends State<_Browser> {
     try {
       final found = switch (widget.kind) {
         'anime' => await fetchAnime(_search, page: page),
-        'match' => await fetchMatches(_filter, page: page, countries: widget.countries),
         _ => await fetchTitles(
           widget.kind,
           _mode,
@@ -560,8 +557,6 @@ class _BrowserState extends State<_Browser> {
   /// Called on every keystroke: the search follows the typing, with no button to press.
   void _onTyped(String value) {
     setState(() {});
-    // ESPN has no team search, so typing narrows the matches loaded; later months keep loading under it.
-    if (widget.kind == 'match') return;
     _typing?.cancel();
     _typing = Timer(const Duration(milliseconds: 400), () => _setSearch(value.trim()));
   }
@@ -571,20 +566,6 @@ class _BrowserState extends State<_Browser> {
     if (!mounted || value == _search) return;
     _search = value;
     _fetch();
-  }
-
-  void _setFilter(String filter) {
-    if (_filter == filter) return;
-    _filter = filter;
-    _fetch();
-  }
-
-  void _pickCountries() {
-    showSheet(
-      context,
-      title: 'Countries to follow',
-      builder: (_) => _FootballCountryPicker(selected: widget.countries),
-    );
   }
 
   void _setMode(String mode) {
@@ -611,27 +592,12 @@ class _BrowserState extends State<_Browser> {
     final plural = switch (kind) {
       'movie' => 'movies',
       'series' => 'series',
-      'match' => 'teams',
       _ => 'anime',
     };
     final typed = _text.text.trim();
-    final thisYear = todayKey().substring(0, 4);
-    final results = kind == 'match' && typed.isNotEmpty
-        ? _results.where((f) => f.title.toLowerCase().contains(typed.toLowerCase())).toList()
-        : _results;
+    final results = _results;
     final chips = [
-      if (kind == 'match') ...[
-        AppChip('All', selected: _filter.isEmpty, onPressed: () => _setFilter('')),
-        for (final country in widget.countries)
-          AppChip(country, selected: _filter == 'country:$country', onPressed: () => _setFilter('country:$country')),
-        for (final league in footballLeagues.entries)
-          AppChip(league.value, selected: _filter == league.key, onPressed: () => _setFilter(league.key)),
-        AppChip(
-          widget.countries.isEmpty ? 'Follow a country' : 'Countries',
-          icon: Icons.public,
-          onPressed: _pickCountries,
-        ),
-      ] else if (kind != 'anime' && typed.isEmpty) ...[
+      if (kind != 'anime' && typed.isEmpty) ...[
         AppChip('Hot this week', selected: _mode == 'hot', onPressed: () => _setMode('hot')),
         AppChip('Coming soon', selected: _mode == 'upcoming', onPressed: () => _setMode('upcoming')),
       ],
@@ -660,78 +626,23 @@ class _BrowserState extends State<_Browser> {
           // The keyboard's search key only puts the keyboard away; the results are already there or on their way.
           onSubmitted: (v) {
             FocusManager.instance.primaryFocus?.unfocus();
-            if (kind != 'match') _setSearch(v.trim());
+            _setSearch(v.trim());
           },
         ),
         if (chips.isNotEmpty) Wrap(spacing: Spacing.sm, runSpacing: Spacing.sm, children: chips),
-        // Football goes on to the next month by itself, so it is only empty once every month is in.
-        if (!_loading && _error.isEmpty && results.isEmpty && !(kind == 'match' && _more))
-          if (kind == 'match' && typed.isEmpty)
-            Empty(
-              icon: Icons.sports_soccer,
-              title: 'No matches coming up',
-              hint: _filter.startsWith('country:')
-                  ? 'ESPN lists no match for ${_filter.substring(8)} in the next $footballMonths months.'
-                  : 'Matches show here once their fixtures are set.',
-            )
-          else
-            Empty(
-              icon: Icons.search_off,
-              title: 'Nothing found',
-              hint: kind == 'match'
-                  ? 'No upcoming match has a team by that name.'
-                  : 'Check the spelling, or try the original title.',
-            ),
+        if (!_loading && _error.isEmpty && results.isEmpty)
+          const Empty(
+            icon: Icons.search_off,
+            title: 'Nothing found',
+            hint: 'Check the spelling, or try the original title.',
+          ),
         for (final f in results)
-          AppCard(
-            children: [
-              Row(
-                spacing: Spacing.md,
-                children: [
-                  _Poster(url: f.poster, kind: kind),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      spacing: 2,
-                      children: [
-                        T(f.title, variant: TextVariant.heading, maxLines: 2),
-                        T(
-                          [
-                            if (f.releaseDate != null)
-                              formatDay(f.releaseDate!) +
-                                  (f.releaseDate!.startsWith(thisYear) ? '' : ' ${f.releaseDate!.substring(0, 4)}'),
-                            if (f.note.isNotEmpty) f.note,
-                          ].join(' · '),
-                          variant: TextVariant.small,
-                          dim: true,
-                          maxLines: 2,
-                        ),
-                        if (f.rating.isNotEmpty) T('★ ${f.rating}', variant: TextVariant.label, color: c.warn),
-                      ],
-                    ),
-                  ),
-                  if (widget.isSaved(f))
-                    Semantics(
-                      label: 'Remove ${f.title} from my list',
-                      child: AppChip(
-                        'Saved',
-                        icon: Icons.check,
-                        selected: true,
-                        color: c.success,
-                        onPressed: () => _save(f, off: true),
-                      ),
-                    )
-                  else
-                    AppButton(
-                      'Save',
-                      icon: Icons.bookmark_add_outlined,
-                      kind: ButtonKind.soft,
-                      small: true,
-                      onPressed: _saving.contains(f.extId) ? null : () => _save(f),
-                    ),
-                ],
-              ),
-            ],
+          _FoundCard(
+            found: f,
+            saved: widget.isSaved(f),
+            busy: _saving.contains(f.extId),
+            onSave: () => _save(f),
+            onUnsave: () => _save(f, off: true),
           ),
         // Below the list, so loading or failing on a later page leaves the titles above in place.
         if (_loading)
@@ -742,11 +653,7 @@ class _BrowserState extends State<_Browser> {
         if (_error.isNotEmpty)
           Empty(
             icon: Icons.cloud_off_outlined,
-            title: _results.isNotEmpty
-                ? 'Could not load more'
-                : kind == 'match'
-                ? 'Could not load matches'
-                : 'Could not load titles',
+            title: _results.isNotEmpty ? 'Could not load more' : 'Could not load titles',
             hint: _error,
             action: _badKey
                 ? AppButton('Check my keys', kind: ButtonKind.soft, onPressed: widget.onFixKeys)
@@ -759,8 +666,6 @@ class _BrowserState extends State<_Browser> {
         T(
           kind == 'anime'
               ? 'Data from AniList'
-              : kind == 'match'
-              ? 'Fixtures from ESPN'
               : 'Lists from TMDB, IMDb ratings via OMDb. This app uses the TMDB API but is not endorsed or '
                     'certified by TMDB.',
           variant: TextVariant.small,
@@ -772,79 +677,403 @@ class _BrowserState extends State<_Browser> {
   }
 }
 
-/// A searchable list of countries to tick; each tick is saved at once.
-class _FootballCountryPicker extends StatefulWidget {
-  const _FootballCountryPicker({required this.selected});
+/// One title or match found online, with its Save button.
+class _FoundCard extends StatelessWidget {
+  const _FoundCard({
+    required this.found,
+    required this.saved,
+    required this.busy,
+    required this.onSave,
+    required this.onUnsave,
+    this.showDay = true,
+  });
 
-  final List<String> selected;
+  final Found found;
+  final bool saved;
+
+  /// Being saved right now, so the button cannot be pressed twice.
+  final bool busy;
+  final VoidCallback onSave;
+  final VoidCallback onUnsave;
+
+  /// False under a day heading that already says the day.
+  final bool showDay;
 
   @override
-  State<_FootballCountryPicker> createState() => _FootballCountryPickerState();
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final f = found;
+    final thisYear = todayKey().substring(0, 4);
+    return AppCard(
+      children: [
+        Row(
+          spacing: Spacing.md,
+          children: [
+            _Poster(url: f.poster, kind: f.kind),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                spacing: 2,
+                children: [
+                  T(f.title, variant: TextVariant.heading, maxLines: 2),
+                  T(
+                    [
+                      if (showDay && f.releaseDate != null)
+                        formatDay(f.releaseDate!) +
+                            (f.releaseDate!.startsWith(thisYear) ? '' : ' ${f.releaseDate!.substring(0, 4)}'),
+                      if (f.note.isNotEmpty) f.note,
+                    ].join(' · '),
+                    variant: TextVariant.small,
+                    dim: true,
+                    maxLines: 2,
+                  ),
+                  if (f.rating.isNotEmpty) T('★ ${f.rating}', variant: TextVariant.label, color: c.warn),
+                ],
+              ),
+            ),
+            if (saved)
+              Semantics(
+                label: 'Remove ${f.title} from my list',
+                child: AppChip('Saved', icon: Icons.check, selected: true, color: c.success, onPressed: onUnsave),
+              )
+            else
+              AppButton(
+                'Save',
+                icon: Icons.bookmark_add_outlined,
+                kind: ButtonKind.soft,
+                small: true,
+                onPressed: busy ? null : onSave,
+              ),
+          ],
+        ),
+      ],
+    );
+  }
 }
 
-class _FootballCountryPickerState extends State<_FootballCountryPicker> {
-  final _search = TextEditingController();
-  late final _chosen = {...widget.selected};
+/// Football made to measure: a first-time setup, then the next two weeks of what is followed.
+/// What is followed is changed in Settings only, so nothing here filters; the search looks up any one team.
+class _FootballView extends StatefulWidget {
+  const _FootballView({required this.prefs, required this.isSaved, required this.onSave, required this.onUnsave});
+
+  final FootballPrefs prefs;
+  final bool Function(Found) isSaved;
+  final Future<void> Function(Found) onSave;
+  final Future<void> Function(Found) onUnsave;
+
+  @override
+  State<_FootballView> createState() => _FootballViewState();
+}
+
+class _FootballViewState extends State<_FootballView> {
+  /// The last list loaded, kept for half an hour so moving between tabs does not download it again.
+  static ({String key, DateTime at, List<FootballMatch> matches})? _cache;
+
+  final _text = TextEditingController();
+  Timer? _typing;
+  int _request = 0;
+  bool _loading = false;
+  String _error = '';
+  List<FootballMatch> _matches = [];
+
+  /// Teams found by the search, and the one picked from them with its matches.
+  List<Team> _found = [];
+  Team? _picked;
+  List<FootballMatch> _pickedMatches = [];
+
+  final _saving = <String>{};
+
+  String get _key => '${jsonEncode(widget.prefs.toJson())}|${todayKey()}';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(_FootballView old) {
+    super.didUpdateWidget(old);
+    if (jsonEncode(old.prefs.toJson()) != jsonEncode(widget.prefs.toJson())) _load();
+  }
 
   @override
   void dispose() {
-    _search.dispose();
+    _request = -1;
+    _typing?.cancel();
+    _text.dispose();
     super.dispose();
   }
 
-  Future<void> _toggle(String name) async {
-    tick();
-    setState(() => _chosen.contains(name) ? _chosen.remove(name) : _chosen.add(name));
-    // In the order of the list, so the chips keep their places.
-    await appDb.setSetting('football_countries', [
-      for (final c in footballCountries)
-        if (_chosen.contains(c.name)) c.name,
-    ]);
+  Future<void> _load({bool fresh = false}) async {
+    final prefs = widget.prefs;
+    if (!prefs.setUp || prefs.followsNothing) return setState(() => _matches = []);
+    final cache = _cache;
+    if (!fresh && cache != null && cache.key == _key && DateTime.now().difference(cache.at).inMinutes < 30) {
+      return setState(() => _matches = cache.matches);
+    }
+    final request = ++_request;
+    final key = _key;
+    setState(() {
+      _loading = true;
+      _error = '';
+    });
+    try {
+      final matches = await followedMatches(prefs);
+      _cache = (key: key, at: DateTime.now(), matches: matches);
+      if (!mounted || request != _request) return;
+      setState(() {
+        _loading = false;
+        _matches = matches;
+      });
+    } catch (_) {
+      if (!mounted || request != _request) return;
+      setState(() {
+        _loading = false;
+        _error = 'Check your internet connection and try again.';
+      });
+    }
+  }
+
+  void _onTyped(String value) {
+    _typing?.cancel();
+    final term = value.trim();
+    setState(() {
+      _picked = null;
+      if (term.length < 2) _found = [];
+    });
+    if (term.length < 2) return;
+    _typing = Timer(const Duration(milliseconds: 400), () => _search(term));
+  }
+
+  Future<void> _search(String term) async {
+    final request = ++_request;
+    setState(() {
+      _loading = true;
+      _error = '';
+    });
+    try {
+      final found = await searchTeams(term);
+      if (!mounted || request != _request) return;
+      setState(() {
+        _loading = false;
+        _found = found;
+      });
+    } catch (_) {
+      if (!mounted || request != _request) return;
+      setState(() {
+        _loading = false;
+        _error = 'Could not search. Is the phone online?';
+      });
+    }
+  }
+
+  Future<void> _pick(Team team) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final request = ++_request;
+    setState(() {
+      _picked = team;
+      _pickedMatches = [];
+      _loading = true;
+      _error = '';
+    });
+    try {
+      final matches = await searchedTeamMatches(team.id);
+      if (!mounted || request != _request) return;
+      setState(() {
+        _loading = false;
+        _pickedMatches = matches;
+      });
+    } catch (_) {
+      if (!mounted || request != _request) return;
+      setState(() {
+        _loading = false;
+        _error = 'Check your internet connection and try again.';
+      });
+    }
+  }
+
+  void _clearSearch() {
+    _text.clear();
+    _request++;
+    setState(() {
+      _found = [];
+      _picked = null;
+      _loading = false;
+      _error = '';
+    });
+    _load();
+  }
+
+  Future<void> _save(Found f, {bool off = false}) async {
+    if (_saving.contains(f.extId)) return;
+    setState(() => _saving.add(f.extId));
+    try {
+      await (off ? widget.onUnsave(f) : widget.onSave(f));
+    } finally {
+      if (mounted) setState(() => _saving.remove(f.extId));
+    }
+  }
+
+  Future<void> _notAFan() async {
+    final before = widget.prefs;
+    await saveFootballPrefs(before.copyWith(setUp: true, off: true));
+    showUndo('Football is hidden. Settings can bring it back.', () => saveFootballPrefs(before));
+  }
+
+  void _openSettings() =>
+      Navigator.of(context, rootNavigator: true).push(MaterialPageRoute<void>(builder: (_) => const SettingsScreen()));
+
+  /// Matches under a heading per day.
+  List<Widget> _days(List<FootballMatch> matches) {
+    final byDay = <String, List<FootballMatch>>{};
+    for (final m in matches) {
+      (byDay[m.date] ??= []).add(m);
+    }
+    return [
+      for (final MapEntry(key: day, value: list) in byDay.entries)
+        Section(
+          title: relativeDay(day),
+          children: [
+            for (final m in list)
+              () {
+                final f = m.toFound();
+                return _FoundCard(
+                  found: f,
+                  showDay: false,
+                  saved: widget.isSaved(f),
+                  busy: _saving.contains(f.extId),
+                  onSave: () => _save(f),
+                  onUnsave: () => _save(f, off: true),
+                );
+              }(),
+          ],
+        ),
+    ];
   }
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final words = _search.text.trim().toLowerCase();
-    final shown = [
-      for (final country in footballCountries)
-        if (country.name.toLowerCase().contains(words)) country,
-    ];
-    return FormColumn(
-      children: [
-        const T(
-          'Each country adds its national team, its clubs in the continental cups, and its own league '
-          'when ESPN has it.',
-          dim: true,
-        ),
-        Field(
-          controller: _search,
-          icon: Icons.search,
-          hint: 'Search countries',
-          textInputAction: TextInputAction.search,
-          onChanged: (_) => setState(() {}),
-        ),
-        if (shown.isEmpty) const T('No country by that name.', dim: true),
-        Column(
+    final prefs = widget.prefs;
+    if (!prefs.setUp) {
+      return Empty(
+        icon: Icons.sports_soccer,
+        title: 'Make Football yours',
+        hint:
+            'Pick your country, your clubs and the big leagues you care about, and see their next two weeks of '
+            'matches. Matches of your country and clubs also go on your calendar.',
+        action: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          spacing: Spacing.sm,
           children: [
-            for (final (i, country) in shown.indexed)
-              Semantics(
-                checked: _chosen.contains(country.name),
-                child: ListRow(
-                  divider: i > 0,
-                  onTap: () => _toggle(country.name),
-                  children: [
-                    Expanded(child: T(country.name, maxLines: 1)),
-                    if (country.leagues.isNotEmpty) T('League', variant: TextVariant.small, dim: true),
-                    Icon(
-                      _chosen.contains(country.name) ? Icons.check_circle : Icons.circle_outlined,
-                      size: 20,
-                      color: _chosen.contains(country.name) ? c.accent : c.textDim,
-                    ),
-                  ],
-                ),
-              ),
+            AppButton('Get started', onPressed: () => openFootballSetup(context)),
+            AppButton("I don't follow football", kind: ButtonKind.plain, onPressed: _notAFan),
           ],
+        ),
+      );
+    }
+
+    final typed = _text.text.trim().length >= 2;
+    final spinner = Padding(
+      padding: const EdgeInsets.symmetric(vertical: Spacing.xl),
+      child: Center(child: CircularProgressIndicator(color: c.accent)),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      spacing: Spacing.lg,
+      children: [
+        Field(
+          controller: _text,
+          icon: Icons.search,
+          hint: 'Look up any team',
+          textInputAction: TextInputAction.search,
+          onChanged: _onTyped,
+          onSubmitted: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+        ),
+        if (typed || _picked != null)
+          Wrap(
+            children: [AppChip('Clear search', icon: Icons.close, onPressed: _clearSearch)],
+          ),
+        if (_picked != null) ...[
+          T('${_picked!.name} · next two weeks', variant: TextVariant.label, dim: true),
+          if (_loading) spinner,
+          if (!_loading && _error.isEmpty && _pickedMatches.isEmpty)
+            Empty(
+              icon: Icons.event_busy,
+              title: 'No match in the next two weeks',
+              hint: '${_picked!.name} has nothing scheduled before ${formatDay(addDays(todayKey(), footballDays))}.',
+            ),
+          ..._days(_pickedMatches),
+        ] else if (typed) ...[
+          if (_loading) spinner,
+          if (!_loading && _error.isEmpty && _found.isEmpty)
+            const Empty(icon: Icons.search_off, title: 'No team by that name', hint: 'Check the spelling.'),
+          if (_found.isNotEmpty)
+            AppCard(
+              padding: listCardPadding,
+              children: [
+                for (final (i, team) in _found.indexed)
+                  ListRow(
+                    divider: i > 0,
+                    onTap: () => _pick(team),
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            T(team.name, maxLines: 1),
+                            T(
+                              team.league.isEmpty ? 'National team' : team.league,
+                              variant: TextVariant.small,
+                              dim: true,
+                              maxLines: 1,
+                            ),
+                          ],
+                        ),
+                      ),
+                      Icon(Icons.chevron_right, color: c.textDim),
+                    ],
+                  ),
+              ],
+            ),
+        ] else if (prefs.followsNothing)
+          Empty(
+            icon: Icons.sports_soccer,
+            title: 'You follow nothing yet',
+            hint: 'Choose your country, clubs and leagues in Settings, under Football.',
+            action: AppButton('Open Settings', kind: ButtonKind.soft, onPressed: _openSettings),
+          )
+        else ...[
+          if (_loading) spinner,
+          if (!_loading && _error.isEmpty && _matches.isEmpty)
+            const Empty(
+              icon: Icons.event_busy,
+              title: 'No matches in the next two weeks',
+              hint: 'Nothing you follow plays before then.',
+            ),
+          ..._days(_matches),
+        ],
+        if (_error.isNotEmpty)
+          Empty(
+            icon: Icons.cloud_off_outlined,
+            title: 'Could not load matches',
+            hint: _error,
+            action: AppButton(
+              'Try again',
+              kind: ButtonKind.soft,
+              onPressed: () => _picked != null
+                  ? _pick(_picked!)
+                  : typed
+                  ? _search(_text.text.trim())
+                  : _load(fresh: true),
+            ),
+          ),
+        const T(
+          'Fixtures from FotMob. Change what you follow in Settings.',
+          variant: TextVariant.small,
+          dim: true,
+          align: TextAlign.center,
         ),
       ],
     );

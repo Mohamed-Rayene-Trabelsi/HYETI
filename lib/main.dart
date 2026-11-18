@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import 'db.dart';
+import 'football.dart';
 import 'screens/body.dart';
 import 'screens/calendar.dart';
 import 'screens/notes.dart';
@@ -103,6 +104,9 @@ class _AppTabsState extends State<AppTabs> with WidgetsBindingObserver {
         if (mounted) promptForUpdate(context);
       });
     }
+    // Once a day: the coming matches of the national team and clubs followed go on the calendar.
+    // Offline, it tries again next time.
+    syncFootballCalendar().catchError((_) {});
   }
 
   @override
