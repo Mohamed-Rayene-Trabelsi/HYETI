@@ -23,7 +23,7 @@ import kotlin.math.sin
  * The "Savings jar" home-screen widget: a jar of coins filled towards the savings goal, how much is saved,
  * and a button that opens the app on the "Into the jar" sheet (see lib/launch.dart).
  *
- * It reads `settings` (the `goal` and `currency` values) and the `saving` rows of `transactions` from
+ * It reads `settings` (the `goal` and `currency` values) and the `saving` and `withdraw` rows of `transactions` from
  * life.db directly, and draws the jar the way `JarPainter` in lib/jar.dart does; keep the two alike.
  */
 class JarWidget : AppWidgetProvider() {
@@ -49,7 +49,7 @@ class JarWidget : AppWidgetProvider() {
                     it.rawQuery("SELECT value FROM settings WHERE key = ?", arrayOf(key)).use { c ->
                         if (c.moveToFirst()) c.getString(0) else null
                     }
-                val saved = it.rawQuery("SELECT SUM(amount) FROM transactions WHERE kind = 'saving'", null)
+                val saved = it.rawQuery("SELECT SUM(CASE WHEN kind = 'saving' THEN amount WHEN kind = 'withdraw' THEN -amount END) FROM transactions", null)
                     .use { c -> if (c.moveToFirst() && !c.isNull(0)) c.getDouble(0) else 0.0 }
                 // Settings are stored as JSON: the goal is an object, the currency a quoted string.
                 val goal = try {

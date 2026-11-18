@@ -194,23 +194,140 @@ Future<void> openJarDrop(BuildContext context, {required String Function(double)
   return showSheet(
     context,
     title: 'Into the jar',
-    builder: (sheet) => _JarDrop(money: money),
+    builder: (sheet) => _JarMove(money: money),
   );
 }
 
-class _JarDrop extends StatefulWidget {
-  const _JarDrop({required this.money});
+/// The same sheet the other way round: money taken back out, after an "are you sure?".
+Future<void> openJarTakeOut(BuildContext context, {required double saved, required String Function(double) money}) {
+  return showSheet(
+    context,
+    title: 'Out of the jar',
+    builder: (sheet) => _JarMove(money: money, takeOutOf: saved),
+  );
+}
+
+/// How the jar works, behind the "i" on the jar card.
+Future<void> openJarInfo(BuildContext context) {
+  return showSheet(
+    context,
+    title: 'How the jar works',
+    builder: (sheet) => const FormColumn(
+      children: [
+        _InfoLine(
+          icon: Icons.flag_outlined,
+          title: 'Set a goal',
+          text: 'Give it a name and an amount, like a new bike. The jar is full when your savings reach it.',
+        ),
+        _InfoLine(
+          icon: Icons.savings_outlined,
+          title: 'Drop money in',
+          text:
+              'Tap the jar or “Drop in” whenever you put money aside. It is logged as saved, so it no longer counts '
+              'as money you can spend.',
+        ),
+        _InfoLine(
+          icon: Icons.celebration_outlined,
+          title: 'Watch it fill',
+          text: 'The coins rise as you save, and the jar cheers when it is a quarter, half and three quarters full.',
+        ),
+        _InfoLine(
+          icon: Icons.outbox_outlined,
+          title: 'Take money out',
+          text: 'Needed some of it back? “Take out” moves it back to what you can spend, and the jar drops.',
+        ),
+        _InfoLine(
+          icon: Icons.widgets_outlined,
+          title: 'On your home screen',
+          text: 'Add the “Savings jar” widget to see the jar without opening the app, and drop money in from there.',
+        ),
+      ],
+    ),
+  );
+}
+
+class _InfoLine extends StatelessWidget {
+  const _InfoLine({required this.icon, required this.title, required this.text});
+
+  final IconData icon;
+  final String title;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      spacing: Spacing.md,
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(color: coinGold.withValues(alpha: 0.16), shape: BoxShape.circle),
+          child: Icon(icon, size: 19, color: c.text),
+        ),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              T(title, variant: TextVariant.label),
+              T(text, variant: TextVariant.small, dim: true),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Asks before money leaves the jar. True when the person goes ahead.
+Future<bool> confirmTakeOut(BuildContext context, String amount) async {
+  final c = context.colors;
+  final sure = await showDialog<bool>(
+    context: context,
+    barrierColor: c.scrim,
+    builder: (dialog) => Dialog(
+      backgroundColor: c.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.lg)),
+      child: Padding(
+        padding: const EdgeInsets.all(Spacing.lg),
+        child: FormColumn(
+          children: [
+            const T('Are you sure?', variant: TextVariant.heading),
+            T('$amount comes out of your savings jar.', dim: true),
+            AppButton(
+              'Momma raised a financial failure, I GUESS ?',
+              kind: ButtonKind.danger,
+              wrap: true,
+              onPressed: () => Navigator.pop(dialog, true),
+            ),
+            AppButton('Keep it in the jar', kind: ButtonKind.soft, onPressed: () => Navigator.pop(dialog, false)),
+          ],
+        ),
+      ),
+    ),
+  );
+  return sure ?? false;
+}
+
+class _JarMove extends StatefulWidget {
+  const _JarMove({required this.money, this.takeOutOf});
 
   final String Function(double) money;
 
+  /// What is in the jar, when taking out; null when putting in.
+  final double? takeOutOf;
+
   @override
-  State<_JarDrop> createState() => _JarDropState();
+  State<_JarMove> createState() => _JarMoveState();
 }
 
-class _JarDropState extends State<_JarDrop> {
+class _JarMoveState extends State<_JarMove> {
   final _amount = TextEditingController();
   final _label = TextEditingController();
   String _error = '';
+
+  bool get _out => widget.takeOutOf != null;
 
   @override
   void dispose() {
@@ -219,11 +336,17 @@ class _JarDropState extends State<_JarDrop> {
     super.dispose();
   }
 
-  Future<void> _drop(double amount) async {
+  Future<void> _move(double amount) async {
+    if (_out) {
+      if (amount > widget.takeOutOf! + 0.0001) {
+        return setState(() => _error = 'There is only ${widget.money(widget.takeOutOf!)} in the jar.');
+      }
+      if (!await confirmTakeOut(context, widget.money(amount))) return;
+    }
     HapticFeedback.mediumImpact();
     await appDb.insert('INSERT INTO transactions (date, kind, amount, label) VALUES (?, ?, ?, ?)', [
       todayKey(),
-      'saving',
+      _out ? 'withdraw' : 'saving',
       amount,
       _label.text.trim(),
     ]);
@@ -233,17 +356,28 @@ class _JarDropState extends State<_JarDrop> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final icon = _out ? Icons.outbox_outlined : Icons.savings_outlined;
+    final presets = [
+      for (final n in const [5.0, 10.0, 20.0, 50.0, 100.0])
+        if (!_out || n <= widget.takeOutOf!) n,
+    ];
     return FormColumn(
       children: [
-        const T('Tap an amount to drop it in.', dim: true),
-        Wrap(
-          spacing: Spacing.sm,
-          runSpacing: Spacing.sm,
-          children: [
-            for (final n in const [5.0, 10.0, 20.0, 50.0, 100.0])
-              AppChip('+${widget.money(n)}', icon: Icons.savings_outlined, onPressed: () => _drop(n)),
-          ],
+        T(
+          _out
+              ? 'There is ${widget.money(widget.takeOutOf!)} in the jar. Tap an amount to take it out.'
+              : 'Tap an amount to drop it in.',
+          dim: true,
         ),
+        if (presets.isNotEmpty)
+          Wrap(
+            spacing: Spacing.sm,
+            runSpacing: Spacing.sm,
+            children: [
+              for (final n in presets)
+                AppChip('${_out ? '−' : '+'}${widget.money(n)}', icon: icon, onPressed: () => _move(n)),
+            ],
+          ),
         Field(
           label: 'Another amount',
           controller: _amount,
@@ -254,17 +388,18 @@ class _JarDropState extends State<_JarDrop> {
         Field(
           label: 'For (optional)',
           controller: _label,
-          hint: 'Birthday money',
+          hint: _out ? 'Concert tickets' : 'Birthday money',
           textInputAction: TextInputAction.done,
         ),
         if (_error.isNotEmpty) T(_error, variant: TextVariant.small, color: c.danger),
         AppButton(
-          'Drop it in',
-          icon: Icons.savings_outlined,
+          _out ? 'Take it out' : 'Drop it in',
+          icon: icon,
+          kind: _out ? ButtonKind.soft : ButtonKind.primary,
           onPressed: () {
             final n = double.tryParse(_amount.text.replaceFirst(',', '.').replaceAll(RegExp(r'[^\d.]'), ''));
             if (n == null || !n.isFinite || n <= 0) return setState(() => _error = 'Enter an amount above zero.');
-            _drop(n);
+            _move(n);
           },
         ),
       ],

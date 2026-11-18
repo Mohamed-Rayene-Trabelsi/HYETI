@@ -38,6 +38,26 @@ Future<void> tapText(WidgetTester tester, String text) async {
 
 Finder field(int index) => find.byType(TextField).hitTestable().at(index);
 
+/// A week of repeating blocks, as someone might set up: lunch, dinner and gaming every day, work and gym some days.
+Future<void> addRoutine(WidgetTester tester) async {
+  await tester.runAsync(() async {
+    for (final (title, category, days, start, end) in [
+      ('Deep work', 'work', '0,1,2,3,4', 540, 660),
+      ('Lunch', 'food', '0,1,2,3,4,5,6', 780, 825),
+      ('Gym', 'gym', '0,1,3,4', 1080, 1170),
+      ('Dinner', 'food', '0,1,2,3,4,5,6', 1200, 1245),
+      ('Gaming', 'game', '0,1,2,3,4,5,6', 1260, 1350),
+    ]) {
+      await appDb.run(
+        'INSERT INTO routines (title, category, days, start_min, end_min, flex_min, created_date) '
+        'VALUES (?, ?, ?, ?, ?, 15, ?)',
+        [title, category, days, start, end, todayKey()],
+      );
+    }
+  });
+  await settle(tester);
+}
+
 void main() {
   setUp(() async {
     sqfliteFfiInit();
@@ -61,7 +81,7 @@ void main() {
       ('Wallet', 'THIS WEEK'),
       ('Watch', 'Your list is empty'),
       ('Notes', 'No notes yet'),
-      ('Calendar', 'Set up your week'),
+      ('Calendar', 'Plan your days'),
     ]) {
       await openTab(tester, tab);
       expect(find.text(marker).hitTestable(), findsOneWidget, reason: tab);
@@ -73,7 +93,7 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.arrow_back));
     await settle(tester);
-    expect(find.text('Set up your week').hitTestable(), findsOneWidget);
+    expect(find.text('Plan your days').hitTestable(), findsOneWidget);
   });
 
   testWidgets('swiping sideways moves between tabs', (tester) async {
@@ -100,13 +120,11 @@ void main() {
     expect(selectedTab(tester), 0);
   });
 
-  testWidgets('the sample routine fills today', (tester) async {
+  testWidgets('repeating blocks fill today', (tester) async {
     await start(tester);
-    await tapText(tester, 'Use a sample routine');
+    await addRoutine(tester);
 
-    expect(find.text('Set up your week'), findsNothing);
-    final routines = await tester.runAsync(() => appDb.query('SELECT * FROM routines'));
-    expect(routines, hasLength(5));
+    expect(find.text('Plan your days'), findsNothing);
     final today = await tester.runAsync(() => appDb.query('SELECT * FROM events WHERE date = ?', [todayKey()]));
     // Lunch, dinner and gaming run every day; work and gym depend on the weekday.
     expect(today!.length, greaterThanOrEqualTo(3));
@@ -115,10 +133,59 @@ void main() {
 
   testWidgets('the month view draws the routine, and there is no week view', (tester) async {
     await start(tester);
-    await tapText(tester, 'Use a sample routine');
+    await addRoutine(tester);
     expect(find.text('Week'), findsNothing);
     await tapText(tester, 'Month');
     expect(find.text(formatMonth(todayKey())), findsOneWidget);
+  });
+
+  testWidgets('quick setup adds one repeating block after another from the same sheet', (tester) async {
+    await start(tester);
+    await tapText(tester, 'Quick setup');
+    for (final name in ['Gym', 'Lunch']) {
+      await tester.enterText(field(0), name);
+      await settle(tester);
+      await tapText(tester, 'Add to calendar');
+    }
+    expect(find.text('Added Lunch. Add another, or close when you are done.'), findsOneWidget);
+
+    final routines = await tester.runAsync(() => appDb.query('SELECT * FROM routines ORDER BY id'));
+    expect([for (final r in routines!) r['title']], ['Gym', 'Lunch']);
+    // The name picked the icon, and each repeats on the weekday it was set up on.
+    expect([for (final r in routines) r['category']], ['gym', 'food']);
+    expect(routines.first['days'], '${weekdayOf(todayKey())}');
+  });
+
+  testWidgets('a repeating block can be removed from every week, and put back', (tester) async {
+    await start(tester);
+    await addRoutine(tester);
+    await tapText(tester, 'Lunch');
+    await tapText(tester, 'Remove from every week');
+
+    Future<List<Object?>> titles() async => [
+      for (final r in (await tester.runAsync(() => appDb.query('SELECT title FROM routines')))!) r['title'],
+    ];
+    expect(await titles(), isNot(contains('Lunch')));
+    expect(find.text('Lunch'), findsNothing);
+
+    await tapText(tester, 'Undo');
+    expect(await titles(), contains('Lunch'));
+    expect(find.text('Lunch'), findsOneWidget);
+  });
+
+  testWidgets('a single block can be removed from the calendar', (tester) async {
+    await start(tester);
+    await tester.runAsync(
+      () => appDb.run(
+        "INSERT INTO events (date, title, category, start_min, end_min, flex_min) VALUES (?, 'Dentist', 'health', "
+        '600, 660, 15)',
+        [todayKey()],
+      ),
+    );
+    await settle(tester);
+    await tapText(tester, 'Dentist');
+    await tapText(tester, 'Remove from calendar');
+    expect(await tester.runAsync(() => appDb.query('SELECT * FROM events')), isEmpty);
   });
 
   testWidgets('weekly days off are set in settings and leave work off the calendar', (tester) async {
@@ -143,20 +210,36 @@ void main() {
     }
   });
 
-  testWidgets('a block is added from the sheet with an activity and a one-tap length', (tester) async {
+  testWidgets('a block is added from the sheet with a name, a day and a one-tap length', (tester) async {
     await start(tester);
     await tapText(tester, 'Add');
-    await tapText(tester, 'Study');
+    await tester.enterText(field(0), 'Study for the exam');
+    await settle(tester);
+    await tapText(tester, 'Tomorrow');
     await tapText(tester, '1h30');
     await tapText(tester, 'Add to calendar');
 
     final rows = await tester.runAsync(() => appDb.query('SELECT * FROM events'));
-    expect(rows, hasLength(1));
     final block = rows!.single;
+    expect(block['title'], 'Study for the exam');
     expect(block['category'], 'study');
-    expect(block['title'], 'Study');
     expect((block['end_min'] as int) - (block['start_min'] as int), 90);
-    expect(block['date'], todayKey());
+    expect(block['date'], addDays(todayKey(), 1));
+    // The calendar moves to the day the block went on.
+    expect(find.text('Tomorrow'), findsOneWidget);
+  });
+
+  testWidgets('picking an icon by hand sticks, whatever the name says', (tester) async {
+    await start(tester);
+    await tapText(tester, 'Add');
+    await tester.tap(find.bySemanticsLabel('Icon: Other'));
+    await settle(tester);
+    await tester.tap(find.bySemanticsLabel('Reading'));
+    await settle(tester);
+    await tester.enterText(field(0), 'Gym');
+    await settle(tester);
+    await tapText(tester, 'Add to calendar');
+    expect((await tester.runAsync(() => appDb.query('SELECT * FROM events')))!.single['category'], 'read');
   });
 
   testWidgets('with a TMDB key saved, the watch tab no longer asks for keys', (tester) async {
@@ -183,6 +266,39 @@ void main() {
     expect(find.text('25% of \$40'), findsOneWidget);
     // Passing a quarter of the goal is cheered.
     expect(find.text(jarCheers[25]!), findsOneWidget);
+  });
+
+  testWidgets('taking money out of the jar asks first, and only goes ahead when told to', (tester) async {
+    await start(tester);
+    await tester.runAsync(() async {
+      await appDb.setSetting('goal', {'name': 'Bike', 'target': 40});
+      await appDb.insert("INSERT INTO transactions (date, kind, amount, label) VALUES (?, 'saving', 30, '')", [
+        todayKey(),
+      ]);
+    });
+    await openTab(tester, 'Wallet');
+    expect(find.text('75% of \$40'), findsOneWidget);
+
+    // The "i" explains the jar.
+    await tester.tap(find.byIcon(Icons.info_outline).hitTestable());
+    await settle(tester);
+    expect(find.text('How the jar works'), findsOneWidget);
+    await tapText(tester, 'Close');
+
+    // Backing out of the "are you sure?" leaves the jar alone.
+    await tapText(tester, 'Take out');
+    expect(find.text('−\$50'), findsNothing, reason: 'only amounts that are in the jar are offered');
+    await tapText(tester, '−\$10');
+    expect(find.text('Are you sure?'), findsOneWidget);
+    await tapText(tester, 'Keep it in the jar');
+    expect(await tester.runAsync(() => appDb.query("SELECT * FROM transactions WHERE kind = 'withdraw'")), isEmpty);
+
+    await tapText(tester, '−\$10');
+    await tapText(tester, 'Momma raised a financial failure, I GUESS ?');
+    final out = await tester.runAsync(() => appDb.query("SELECT * FROM transactions WHERE kind = 'withdraw'"));
+    expect(out!.single['amount'], 10);
+    expect(find.text('50% of \$40'), findsOneWidget);
+    expect(find.text('Taken from the jar'), findsOneWidget);
   });
 
   testWidgets('a transaction shows up in the wallet totals and can be edited', (tester) async {
@@ -374,7 +490,7 @@ void main() {
 
   testWidgets('the day list ticks a block off', (tester) async {
     await start(tester);
-    await tapText(tester, 'Use a sample routine');
+    await addRoutine(tester);
     final total = (await tester.runAsync(() => appDb.query('SELECT * FROM events WHERE date = ?', [todayKey()])))!
         .length;
 

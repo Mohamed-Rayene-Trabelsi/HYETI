@@ -524,6 +524,8 @@ class AppButton extends StatelessWidget {
     this.kind = ButtonKind.primary,
     this.small = false,
     this.icon,
+    this.wrap = false,
+    this.fill,
   });
 
   final String label;
@@ -532,20 +534,31 @@ class AppButton extends StatelessWidget {
   final bool small;
   final IconData? icon;
 
+  /// Lets a long label take two lines instead of being cut short.
+  final bool wrap;
+
+  /// A solid colour for the button instead of its kind's, for the rare pair of actions told apart by colour.
+  final Color? fill;
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final bg = switch (kind) {
-      ButtonKind.primary => c.accent,
-      ButtonKind.plain => Colors.transparent,
-      _ => c.surfaceAlt,
-    };
-    final fg = switch (kind) {
-      ButtonKind.primary => c.onAccent,
-      ButtonKind.danger => c.danger,
-      ButtonKind.plain => c.accent,
-      ButtonKind.soft => c.text,
-    };
+    final bg =
+        fill ??
+        switch (kind) {
+          ButtonKind.primary => c.accent,
+          ButtonKind.plain => Colors.transparent,
+          _ => c.surfaceAlt,
+        };
+    // On a custom fill, dark text on bright colours and white on deep ones.
+    final fg = fill != null
+        ? (fill!.computeLuminance() > 0.35 ? const Color(0xFF0C0D10) : const Color(0xFFFFFFFF))
+        : switch (kind) {
+            ButtonKind.primary => c.onAccent,
+            ButtonKind.danger => c.danger,
+            ButtonKind.plain => c.accent,
+            ButtonKind.soft => c.text,
+          };
     final radius = BorderRadius.circular(Radii.button);
     return Opacity(
       opacity: onPressed == null ? 0.4 : 1,
@@ -558,7 +571,7 @@ class AppButton extends StatelessWidget {
           child: ConstrainedBox(
             constraints: BoxConstraints(minHeight: small ? 40 : 48),
             child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: small ? Spacing.md : Spacing.lg),
+              padding: EdgeInsets.symmetric(horizontal: small ? Spacing.md : Spacing.lg, vertical: wrap ? 10 : 0),
               child: Center(
                 heightFactor: 1,
                 child: Row(
@@ -571,7 +584,8 @@ class AppButton extends StatelessWidget {
                         label,
                         variant: TextVariant.label,
                         color: fg,
-                        maxLines: 1,
+                        maxLines: wrap ? 2 : 1,
+                        align: TextAlign.center,
                         style: small ? null : const TextStyle(fontSize: 15),
                       ),
                     ),

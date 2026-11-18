@@ -12,10 +12,13 @@ import '../ui.dart';
 
 const _kindLabel = {'expense': 'Spent', 'income': 'Income', 'saving': 'Saved'};
 
+/// Every kind a row can have: the three above, plus money taken back out of the savings jar.
+const _rowLabel = {..._kindLabel, 'withdraw': 'Taken from the jar'};
+
 const _sums = '''
   SUM(CASE WHEN kind = 'income' THEN amount END) AS income,
   SUM(CASE WHEN kind = 'expense' THEN amount END) AS expense,
-  SUM(CASE WHEN kind = 'saving' THEN amount END) AS saving''';
+  SUM(CASE WHEN kind = 'saving' THEN amount WHEN kind = 'withdraw' THEN -amount END) AS saving''';
 
 double? parseAmount(String text) {
   final n = double.tryParse(text.replaceFirst(',', '.').replaceAll(RegExp(r'[^\d.]'), ''));
@@ -233,11 +236,30 @@ class _WalletScreenState extends State<WalletScreen> with Live {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     spacing: Spacing.xs,
                     children: [
-                      T(
-                        goal != null ? (goal['name'] as String).toUpperCase() : 'SAVINGS JAR',
-                        variant: TextVariant.label,
-                        dim: true,
-                        maxLines: 1,
+                      Row(
+                        children: [
+                          Expanded(
+                            child: T(
+                              goal != null ? (goal['name'] as String).toUpperCase() : 'SAVINGS JAR',
+                              variant: TextVariant.label,
+                              dim: true,
+                              maxLines: 1,
+                            ),
+                          ),
+                          Semantics(
+                            button: true,
+                            label: 'How the savings jar works',
+                            excludeSemantics: true,
+                            child: GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: () => openJarInfo(context),
+                              child: Padding(
+                                padding: const EdgeInsets.all(4),
+                                child: Icon(Icons.info_outline, size: 20, color: c.textDim),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                       FittedBox(
                         fit: BoxFit.scaleDown,
@@ -264,13 +286,24 @@ class _WalletScreenState extends State<WalletScreen> with Live {
                   child: AppButton(
                     'Drop in',
                     icon: Icons.savings_outlined,
+                    fill: c.success,
                     small: true,
                     onPressed: () => openJarDrop(context, money: _money),
                   ),
                 ),
                 Expanded(
                   child: AppButton(
-                    goal != null ? 'Edit goal' : 'Set a goal',
+                    'Take out',
+                    icon: Icons.outbox_outlined,
+                    fill: c.danger,
+                    small: true,
+                    onPressed: saved > 0 ? () => openJarTakeOut(context, saved: saved, money: _money) : null,
+                  ),
+                ),
+                Expanded(
+                  child: AppButton(
+                    goal != null ? 'Goal' : 'Set goal',
+                    icon: Icons.flag_outlined,
                     kind: ButtonKind.soft,
                     small: true,
                     onPressed: _openGoal,
@@ -306,7 +339,8 @@ class _WalletScreenState extends State<WalletScreen> with Live {
   String _dayTotal(List<Rec> txs) {
     var net = 0.0;
     for (final t in txs) {
-      net += t['kind'] == 'income' ? _num(t['amount']) : -_num(t['amount']);
+      // Income and money taken out of the jar come back to what is available; the rest leaves it.
+      net += t['kind'] == 'income' || t['kind'] == 'withdraw' ? _num(t['amount']) : -_num(t['amount']);
     }
     return '${net >= 0 ? '+' : '−'}${_money(net.abs())}';
   }
@@ -316,13 +350,14 @@ class _WalletScreenState extends State<WalletScreen> with Live {
     final kind = t['kind'] as String;
     final label = t['label'] as String;
     final sign = switch (kind) {
-      'income' => '+',
+      'income' || 'withdraw' => '+',
       'expense' => '−',
       _ => '',
     };
     final (icon, tint) = switch (kind) {
       'income' => (Icons.south_west, c.success),
       'saving' => (Icons.savings_outlined, c.accent),
+      'withdraw' => (Icons.outbox_outlined, c.warn),
       _ => (Icons.north_east, c.textDim),
     };
     return ListRow(
@@ -339,8 +374,8 @@ class _WalletScreenState extends State<WalletScreen> with Live {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              T(label.isNotEmpty ? label : _kindLabel[kind]!, maxLines: 1),
-              if (label.isNotEmpty) T(_kindLabel[kind]!, variant: TextVariant.small, dim: true),
+              T(label.isNotEmpty ? label : _rowLabel[kind]!, maxLines: 1),
+              if (label.isNotEmpty) T(_rowLabel[kind]!, variant: TextVariant.small, dim: true),
             ],
           ),
         ),
@@ -575,7 +610,14 @@ class _TxFormState extends State<_TxForm> {
               ],
             ),
         ],
-        Segmented<String>(value: _kind, onChanged: (v) => setState(() => _kind = v), options: _kindLabel),
+        Segmented<String>(
+          value: _kind,
+          onChanged: (v) => setState(() => _kind = v),
+          // A row taken from the jar keeps that kind when edited; new rows offer the usual three.
+          options: _kind == 'withdraw' || widget.initial?['kind'] == 'withdraw'
+              ? const {..._kindLabel, 'withdraw': 'Taken out'}
+              : _kindLabel,
+        ),
         Field(
           label: 'Amount',
           controller: _amount,

@@ -5,6 +5,7 @@ import 'package:personal_mobile_app/body_map.dart';
 import 'package:personal_mobile_app/date.dart';
 import 'package:personal_mobile_app/muscles.dart';
 import 'package:personal_mobile_app/jar.dart';
+import 'package:personal_mobile_app/screens/calendar.dart';
 import 'package:personal_mobile_app/receipt.dart';
 import 'package:personal_mobile_app/screens/nutrition.dart';
 import 'package:personal_mobile_app/screens/wallet.dart';
@@ -78,6 +79,14 @@ void main() {
       expect(suggestPlan(sex: 'male', age: '', height: '178', weight: '75', activity: 1.2, goal: 0), isNull);
       expect(suggestPlan(sex: 'female', age: '30', height: '300', weight: '60', activity: 1.2, goal: 0), isNull);
     });
+  });
+
+  test('a block name suggests its icon, by whole words', () {
+    expect(guessCategory('Gym with Sam'), 'gym');
+    expect(guessCategory('Reading club'), 'read');
+    expect(guessCategory('Sunday brunch'), 'food');
+    expect(guessCategory('Physics lecture'), 'study');
+    expect(guessCategory('Something else'), isNull);
   });
 
   group('savings jar', () {

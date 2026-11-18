@@ -153,17 +153,6 @@ void main() {
     expect(paths.last, '/3/trending/tv/week');
   });
 
-  testWidgets('a title cannot be typed in twice', (tester) async {
-    await start(tester);
-    for (final title in ['Dune', 'dune!']) {
-      await tapText(tester, 'Add title');
-      await tester.enterText(field(0), title);
-      await tapText(tester, 'Add to my list');
-    }
-    expect(find.text('That is already on your list.'), findsOneWidget);
-    expect(await tester.runAsync(() => appDb.query('SELECT * FROM watch_items')), hasLength(1));
-  });
-
   testWidgets('saving a found title takes over the copy typed in by hand', (tester) async {
     fakeAnilist((_) => anilistPage([anime(7)], more: false));
     await tester.runAsync(

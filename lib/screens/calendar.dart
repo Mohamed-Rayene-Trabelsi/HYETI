@@ -21,6 +21,7 @@ class BlockValues {
     required this.end,
     required this.flex,
     this.days,
+    this.date,
   });
 
   final String title;
@@ -31,15 +32,10 @@ class BlockValues {
 
   /// Weekdays (0 = Monday) when the block repeats, null for a single day.
   final List<int>? days;
-}
 
-const _sampleRoutine = [
-  BlockValues(title: 'Deep work', category: 'work', start: 540, end: 660, flex: 15, days: [0, 1, 2, 3, 4]),
-  BlockValues(title: 'Lunch', category: 'food', start: 780, end: 825, flex: 15, days: [0, 1, 2, 3, 4, 5, 6]),
-  BlockValues(title: 'Gym', category: 'gym', start: 1080, end: 1170, flex: 30, days: [0, 1, 3, 4]),
-  BlockValues(title: 'Dinner', category: 'food', start: 1200, end: 1245, flex: 15, days: [0, 1, 2, 3, 4, 5, 6]),
-  BlockValues(title: 'Gaming', category: 'game', start: 1260, end: 1350, flex: 30, days: [0, 1, 2, 3, 4, 5, 6]),
-];
+  /// The day of a single block.
+  final String? date;
+}
 
 Future<void> _insertRoutine(DatabaseExecutor db, BlockValues v) {
   return db.execute(
@@ -190,73 +186,110 @@ class _CalendarScreenState extends State<CalendarScreen> with Live {
 
   /* ---------- Sheets ---------- */
 
+  /// Puts a new block on the calendar: every week from now on, or once on its day.
+  Future<void> _addBlock(BlockValues v) async {
+    if (v.days != null) {
+      await _saveRoutine(v, null);
+    } else {
+      await appDb.run(
+        'INSERT INTO events (date, title, category, start_min, end_min, flex_min) VALUES (?, ?, ?, ?, ?, ?)',
+        [v.date, v.title, v.category, v.start, v.end, v.flex],
+      );
+    }
+  }
+
   void _openNew({int? start}) {
-    final date = _date;
     showSheet(
       context,
-      title: 'New · ${formatDay(date)}',
+      title: 'New block',
       builder: (sheet) => BlockForm(
         repeat: 'choose',
         start: start,
-        end: start == null ? null : math.min(start + 60, 1439),
+        date: _date,
         onSave: (v) async {
-          if (v.days != null) {
-            await _saveRoutine(v, null);
-          } else {
-            await appDb.run(
-              'INSERT INTO events (date, title, category, start_min, end_min, flex_min) VALUES (?, ?, ?, ?, ?, ?)',
-              [date, v.title, v.category, v.start, v.end, v.flex],
-            );
-          }
+          await _addBlock(v);
           if (sheet.mounted) Navigator.pop(sheet);
+          // A single block on another day: go and show it there.
+          if (v.days == null && v.date != _date) _go(date: v.date);
         },
       ),
+    );
+  }
+
+  /// The same sheet as "Add", set to repeat every week, and kept open to add one thing after another.
+  void _openQuickSetup() {
+    showSheet(
+      context,
+      title: 'Quick setup',
+      builder: (sheet) =>
+          BlockForm(repeat: 'choose', repeatByDefault: true, again: true, date: _date, onSave: _addBlock),
     );
   }
 
   void _openEdit(Rec e) {
-    final fromRoutine = e['routine_id'] != null;
+    final routineId = e['routine_id'] as int?;
     showSheet(
       context,
       title: 'Edit block',
-      builder: (sheet) => BlockForm(
-        repeat: 'never',
-        initial: e,
-        deleteLabel: fromRoutine ? 'Skip on this day' : 'Delete',
-        onSave: (v) async {
-          await appDb.run(
-            'UPDATE events SET title = ?, category = ?, start_min = ?, end_min = ?, flex_min = ?, shift_min = 0 '
-            'WHERE id = ?',
-            [v.title, v.category, v.start, v.end, v.flex, e['id']],
-          );
+      builder: (sheet) {
+        void close() {
           if (sheet.mounted) Navigator.pop(sheet);
-        },
-        onDelete: () async {
-          if (fromRoutine) {
-            // Routine blocks are hidden rather than deleted so they are not copied back in.
-            await appDb.run('UPDATE events SET hidden = 1 WHERE id = ?', [e['id']]);
-            showUndo(
-              'Skipped ${e['title']} on this day',
-              () => appDb.run('UPDATE events SET hidden = 0 WHERE id = ?', [e['id']]),
+        }
+
+        return BlockForm(
+          repeat: 'never',
+          initial: e,
+          onSave: (v) async {
+            await appDb.run(
+              'UPDATE events SET date = ?, title = ?, category = ?, start_min = ?, end_min = ?, flex_min = ?, '
+              'shift_min = 0 WHERE id = ?',
+              [v.date, v.title, v.category, v.start, v.end, v.flex, e['id']],
             );
-          } else {
-            await deleteWithUndo('events', e, 'Deleted ${e['title']}');
-          }
-          if (sheet.mounted) Navigator.pop(sheet);
-        },
-      ),
+            close();
+          },
+          actions: [
+            if (routineId != null) ...[
+              AppButton(
+                'Skip this day',
+                kind: ButtonKind.soft,
+                icon: Icons.event_busy_outlined,
+                onPressed: () async {
+                  // Routine blocks are hidden rather than deleted so they are not copied back in.
+                  await appDb.run('UPDATE events SET hidden = 1 WHERE id = ?', [e['id']]);
+                  showUndo(
+                    'Skipped ${e['title']} on this day',
+                    () => appDb.run('UPDATE events SET hidden = 0 WHERE id = ?', [e['id']]),
+                  );
+                  close();
+                },
+              ),
+              AppButton(
+                'Remove from every week',
+                kind: ButtonKind.danger,
+                icon: Icons.delete_outline,
+                onPressed: () async {
+                  final routine = (await appDb.query('SELECT * FROM routines WHERE id = ?', [routineId])).firstOrNull;
+                  if (routine != null) await removeRoutineWithUndo(routine);
+                  close();
+                },
+              ),
+            ] else
+              AppButton(
+                'Remove from calendar',
+                kind: ButtonKind.danger,
+                icon: Icons.delete_outline,
+                onPressed: () async {
+                  await deleteWithUndo('events', e, 'Removed ${e['title']}');
+                  close();
+                },
+              ),
+          ],
+        );
+      },
     );
   }
 
   void _openRoutines() => showSheet(context, title: 'Weekly routine', builder: (_) => const _RoutineList());
-
-  Future<void> _addSample() {
-    return appDb.transaction((txn) async {
-      for (final v in _sampleRoutine) {
-        await _insertRoutine(txn, v);
-      }
-    });
-  }
 
   Future<void> _toggle(Rec e) {
     HapticFeedback.lightImpact();
@@ -359,19 +392,9 @@ class _CalendarScreenState extends State<CalendarScreen> with Live {
         if (needsSetup)
           Empty(
             icon: Icons.event_repeat,
-            title: 'Set up your week',
-            hint:
-                'Add repeating blocks for gym, meals, work and gaming. They fill your calendar automatically '
-                'and can bend when life gets in the way.',
-            action: Wrap(
-              spacing: Spacing.sm,
-              runSpacing: Spacing.sm,
-              alignment: WrapAlignment.center,
-              children: [
-                AppButton('Use a sample routine', onPressed: _addSample),
-                AppButton('Build my own', kind: ButtonKind.soft, onPressed: () => openRoutineForm(context, null)),
-              ],
-            ),
+            title: 'Plan your days',
+            hint: 'Add what you do, like gym, meals or classes. Make it repeat every week and it fills in by itself.',
+            action: AppButton('Quick setup', icon: Icons.bolt, onPressed: _openQuickSetup),
           ),
         if (_view == 'month')
           MonthGrid(
@@ -742,6 +765,13 @@ class _Agenda extends StatelessWidget {
 
 /* ---------- Weekly routine ---------- */
 
+/// Removes a repeating block from every week ahead, with an undo that brings it back.
+Future<void> removeRoutineWithUndo(Rec routine) async {
+  await _deleteRoutine(routine);
+  // Days ahead are copied from the routine again as they are shown, so restoring the row is enough.
+  showUndo('Removed ${routine['title']} from every week', () => appDb.restore('routines', routine));
+}
+
 void openRoutineForm(BuildContext context, Rec? routine) {
   showSheet(
     context,
@@ -753,12 +783,18 @@ void openRoutineForm(BuildContext context, Rec? routine) {
         await _saveRoutine(v, routine);
         if (sheet.mounted) Navigator.pop(sheet);
       },
-      onDelete: routine == null
-          ? null
-          : () async {
-              await _deleteRoutine(routine);
+      actions: [
+        if (routine != null)
+          AppButton(
+            'Remove from every week',
+            kind: ButtonKind.danger,
+            icon: Icons.delete_outline,
+            onPressed: () async {
+              await removeRoutineWithUndo(routine);
               if (sheet.mounted) Navigator.pop(sheet);
             },
+          ),
+      ],
     ),
   );
 }
@@ -842,37 +878,69 @@ String _daysLabel(String days) {
 /// One-tap lengths: minutes → the short label on the button.
 const _lengths = {15: '15m', 30: '30m', 45: '45m', 60: '1h', 90: '1h30', 120: '2h', 180: '3h'};
 
-const _dayPresets = {
-  'Every day': [0, 1, 2, 3, 4, 5, 6],
-  'Weekdays': [0, 1, 2, 3, 4],
-  'Weekends': [5, 6],
+/// Words that point to an activity, so typing a name picks its icon. A word matches when it starts with one of
+/// these, so "reading" finds "read" but "brunch" does not find "run".
+const _nameHints = {
+  'gym': ['gym', 'workout', 'run', 'training', 'lift', 'football', 'swim', 'yoga', 'sport', 'cardio'],
+  'food': ['lunch', 'dinner', 'breakfast', 'brunch', 'meal', 'eat', 'cook', 'snack'],
+  'sleep': ['sleep', 'nap', 'bed'],
+  'study': ['study', 'class', 'exam', 'homework', 'lecture', 'revis', 'course', 'school', 'uni'],
+  'work': ['work', 'meeting', 'office', 'job', 'shift', 'call'],
+  'game': ['game', 'gaming', 'play'],
+  'watch': ['movie', 'film', 'series', 'tv', 'anime', 'watch', 'netflix'],
+  'read': ['read', 'book'],
+  'social': ['friend', 'party', 'coffee', 'date', 'hangout'],
+  'family': ['family', 'mom', 'mum', 'dad', 'kids', 'parents'],
+  'chores': ['clean', 'laundry', 'chore', 'dishes', 'tidy'],
+  'errand': ['shop', 'grocer', 'errand', 'market', 'bank', 'post'],
+  'travel': ['drive', 'flight', 'travel', 'commute', 'bus', 'train', 'trip'],
+  'health': ['doctor', 'dentist', 'health', 'meds', 'therapy', 'pharmacy'],
+  'hobby': ['draw', 'music', 'guitar', 'piano', 'hobby', 'paint', 'sketch'],
 };
 
-/// Form for a calendar block: a one-off on one day, or a weekly routine.
+/// The activity a block's name suggests, or null when nothing fits.
+String? guessCategory(String name) {
+  final words = name.toLowerCase().split(RegExp(r'[^\p{L}]+', unicode: true)).where((w) => w.isNotEmpty);
+  for (final MapEntry(key: key, value: hints) in _nameHints.entries) {
+    if (words.any((w) => hints.any(w.startsWith))) return key;
+  }
+  return null;
+}
+
+/// The sheet for a calendar block, new or edited: a name with its icon, when (once on a day, or every week on
+/// chosen weekdays), and a start time with a one-tap length.
 class BlockForm extends StatefulWidget {
   const BlockForm({
     super.key,
     this.initial,
     this.start,
-    this.end,
+    this.date,
     required this.repeat,
+    this.repeatByDefault = false,
     required this.onSave,
-    this.onDelete,
-    this.deleteLabel = 'Delete',
+    this.actions = const [],
+    this.again = false,
   });
 
   /// An events or routines row to edit.
   final Rec? initial;
 
-  /// Times for a new block, when it was started by tapping the timeline.
+  /// A start time for a new block, when it was started by tapping a free gap in the day.
   final int? start;
-  final int? end;
 
-  /// 'choose' lets the user pick; 'always' / 'never' fix it.
+  /// The day a new one-off block goes on; today when not given.
+  final String? date;
+
+  /// 'choose' lets the user pick once or every week; 'always' / 'never' fix it.
   final String repeat;
-  final ValueChanged<BlockValues> onSave;
-  final VoidCallback? onDelete;
-  final String deleteLabel;
+  final bool repeatByDefault;
+  final Future<void> Function(BlockValues) onSave;
+
+  /// More buttons under Save, such as the ways to remove the block.
+  final List<Widget> actions;
+
+  /// Stays open after saving, emptied for the next block: the quick setup adds several in a row.
+  final bool again;
 
   @override
   State<BlockForm> createState() => _BlockFormState();
@@ -880,18 +948,40 @@ class BlockForm extends StatefulWidget {
 
 class _BlockFormState extends State<BlockForm> {
   late final _title = TextEditingController(text: widget.initial?['title'] as String? ?? '');
-  late String _category = widget.initial?['category'] as String? ?? 'work';
-  late int _start = widget.initial?['start_min'] as int? ?? widget.start ?? 9 * 60;
-  late int _end = widget.initial?['end_min'] as int? ?? widget.end ?? 10 * 60;
+  late String _category = widget.initial?['category'] as String? ?? 'other';
+
+  /// Once an icon is picked by hand, typing the name no longer changes it.
+  late bool _iconChosen = widget.initial != null;
+  bool _iconsOpen = false;
+
+  late String _date = widget.initial?['date'] as String? ?? widget.date ?? todayKey();
+  late String _shownMonth = monthStart(_date);
+  bool _calendarOpen = false;
+
+  late int _start = widget.initial?['start_min'] as int? ?? widget.start ?? _suggestedStart();
+  late int _length = widget.initial == null
+      ? 60
+      : math.max(5, (widget.initial!['end_min'] as int) - (widget.initial!['start_min'] as int));
 
   /// Kept for blocks saved before the "running late" buffer was taken out; no longer shown.
   late final int _flex = widget.initial?['flex_min'] as int? ?? 15;
-  late bool _repeats = widget.repeat == 'always';
+  late bool _repeats = widget.repeat == 'always' || (widget.repeat == 'choose' && widget.repeatByDefault);
   late List<int> _days = switch (widget.initial?['days']) {
     final String days when days.isNotEmpty => days.split(',').map(int.parse).toList(),
-    _ => [0, 1, 2, 3, 4],
+    _ => [weekdayOf(_date)],
   };
   String _error = '';
+
+  /// After a quick-setup save: what was just added.
+  String _added = '';
+  bool _saving = false;
+
+  /// The next full hour today, or nine in the morning on any other day.
+  int _suggestedStart() {
+    final date = widget.date ?? todayKey();
+    if (date != todayKey()) return 9 * 60;
+    return math.min((nowMinutes() ~/ 60 + 1) * 60, 22 * 60);
+  }
 
   @override
   void dispose() {
@@ -899,130 +989,211 @@ class _BlockFormState extends State<BlockForm> {
     super.dispose();
   }
 
-  void _save() {
-    if (_end <= _start) return setState(() => _error = 'The end time has to be after the start time.');
+  void _named(String name) {
+    if (_iconChosen) return;
+    final guess = guessCategory(name);
+    if (guess != null && guess != _category) setState(() => _category = guess);
+  }
+
+  Future<void> _save() async {
+    if (_saving) return;
     if (_repeats && _days.isEmpty) return setState(() => _error = 'Pick at least one day.');
-    final title = _title.text.trim();
-    widget.onSave(
+    final title = _title.text.trim().isEmpty ? categoryOf(_category).label : _title.text.trim();
+    setState(() {
+      _saving = true;
+      _error = '';
+    });
+    await widget.onSave(
       BlockValues(
-        title: title.isEmpty ? categoryOf(_category).label : title,
+        title: title,
         category: _category,
         start: _start,
-        end: _end,
+        end: math.min(_start + _length, 1439),
         flex: _flex,
         days: _repeats ? ([..._days]..sort()) : null,
+        date: _date,
       ),
     );
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      if (widget.again) {
+        // Ready for the next one: same day and time, nothing else carried over.
+        _title.clear();
+        _category = 'other';
+        _iconChosen = false;
+        _iconsOpen = false;
+        _added = 'Added $title. Add another, or close when you are done.';
+      }
+    });
   }
 
   Widget _label(String text) => T(text, variant: TextVariant.label, dim: true);
 
-  Widget _chips(List<Widget> children) => Wrap(spacing: Spacing.sm, runSpacing: Spacing.sm, children: children);
-
-  /// One activity in the grid: its icon in its colour, picked out when chosen.
-  Widget _activity(BuildContext context, Category cat) {
+  /// The chosen icon, big and tappable, beside the name.
+  Widget _iconTile(BuildContext context) {
     final c = context.colors;
-    final selected = cat.key == _category;
-    return Expanded(
-      child: Semantics(
-        button: true,
-        selected: selected,
-        label: cat.label,
-        excludeSemantics: true,
-        child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () {
-            tick();
-            setState(() => _category = cat.key);
-          },
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 150),
-            height: 58,
-            decoration: BoxDecoration(
-              color: selected ? cat.color.withValues(alpha: 0.18) : c.surfaceAlt,
-              borderRadius: BorderRadius.circular(Radii.button),
-              border: Border.all(color: selected ? cat.color : c.border, width: selected ? 1.5 : 0.5),
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              spacing: 3,
-              children: [
-                Icon(cat.icon, size: 20, color: cat.color),
-                T(
-                  cat.label,
-                  variant: TextVariant.small,
-                  dim: !selected,
-                  maxLines: 1,
-                  style: TextStyle(fontSize: 12, fontWeight: selected ? FontWeight.w600 : null),
-                ),
-              ],
-            ),
+    final cat = categoryOf(_category);
+    return Semantics(
+      button: true,
+      expanded: _iconsOpen,
+      label: 'Icon: ${cat.label}',
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: () {
+          tick();
+          setState(() => _iconsOpen = !_iconsOpen);
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+            color: cat.color.withValues(alpha: 0.18),
+            borderRadius: BorderRadius.circular(Radii.button),
+            border: Border.all(color: _iconsOpen ? cat.color : c.border, width: _iconsOpen ? 1.5 : 0.5),
           ),
+          child: Icon(cat.icon, color: cat.color, size: 24),
         ),
       ),
+    );
+  }
+
+  /// Every icon, without labels, eight to a row.
+  Widget _iconGrid(BuildContext context) {
+    final c = context.colors;
+    return LayoutBuilder(
+      builder: (context, box) {
+        const gap = 6.0, perRow = 8;
+        final size = (box.maxWidth - gap * (perRow - 1)) / perRow - 0.01;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            for (final cat in categories)
+              Semantics(
+                button: true,
+                selected: cat.key == _category,
+                label: cat.label,
+                excludeSemantics: true,
+                child: GestureDetector(
+                  onTap: () {
+                    tick();
+                    setState(() {
+                      _category = cat.key;
+                      _iconChosen = true;
+                      _iconsOpen = false;
+                    });
+                  },
+                  child: Container(
+                    width: size,
+                    height: size,
+                    decoration: BoxDecoration(
+                      color: cat.key == _category ? cat.color.withValues(alpha: 0.2) : c.surfaceAlt,
+                      borderRadius: BorderRadius.circular(Radii.button - 2),
+                      border: cat.key == _category ? Border.all(color: cat.color, width: 1.5) : null,
+                    ),
+                    child: Icon(cat.icon, size: 20, color: cat.color),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Today, tomorrow, or another day from a small month calendar.
+  Widget _dayChoice(BuildContext context) {
+    final today = todayKey(), tomorrow = addDays(today, 1);
+    void pick(String date) => setState(() {
+      _date = date;
+      _calendarOpen = false;
+      _days = [weekdayOf(date)];
+    });
+    final other = _date != today && _date != tomorrow;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      spacing: Spacing.sm,
+      children: [
+        Wrap(
+          spacing: Spacing.sm,
+          runSpacing: Spacing.sm,
+          children: [
+            AppChip('Today', selected: _date == today, onPressed: () => pick(today)),
+            AppChip('Tomorrow', selected: _date == tomorrow, onPressed: () => pick(tomorrow)),
+            AppChip(
+              other ? formatDay(_date) : 'Another day',
+              icon: Icons.calendar_month_outlined,
+              selected: other || _calendarOpen,
+              onPressed: () => setState(() {
+                _calendarOpen = !_calendarOpen;
+                _shownMonth = monthStart(_date);
+              }),
+            ),
+          ],
+        ),
+        if (_calendarOpen) ...[
+          Row(
+            children: [
+              IconButton(
+                tooltip: 'Previous month',
+                onPressed: () => setState(() => _shownMonth = addMonths(_shownMonth, -1)),
+                icon: const Icon(Icons.chevron_left),
+              ),
+              Expanded(
+                child: T(formatMonth(_shownMonth), variant: TextVariant.label, align: TextAlign.center),
+              ),
+              IconButton(
+                tooltip: 'Next month',
+                onPressed: () => setState(() => _shownMonth = addMonths(_shownMonth, 1)),
+                icon: const Icon(Icons.chevron_right),
+              ),
+            ],
+          ),
+          MonthGrid(
+            firstCell: startOfWeek(_shownMonth, 'mon'),
+            month: _shownMonth.substring(0, 7),
+            selected: _date,
+            onSelect: (d) {
+              tick();
+              pick(d);
+            },
+          ),
+        ],
+      ],
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final length = _end - _start;
-    final dayKey = ([..._days]..sort()).join();
+    final c = context.colors;
     return FormColumn(
       children: [
-        _label('Activity'),
-        Column(
+        if (_added.isNotEmpty) T(_added, variant: TextVariant.small, color: c.success),
+        Row(
           spacing: Spacing.sm,
           children: [
-            for (var i = 0; i < categories.length; i += 4)
-              Row(
-                spacing: Spacing.sm,
-                children: [for (final cat in categories.skip(i).take(4)) _activity(context, cat)],
+            _iconTile(context),
+            Expanded(
+              child: Field(
+                controller: _title,
+                hint: 'What is it? Gym, lunch, class…',
+                autofocus: widget.initial == null,
+                textInputAction: TextInputAction.done,
+                onChanged: _named,
               ),
+            ),
           ],
         ),
-        Field(label: 'Name (optional)', controller: _title, hint: categoryOf(_category).label),
-        TimeRangeField(
-          start: _start,
-          end: _end,
-          onChanged: (s, e) => setState(() {
-            _start = s;
-            _end = e;
-            _error = '';
-          }),
-        ),
-        _label(length > 0 ? 'Length · ${_span(length)}' : 'Length'),
-        // Every length in one row; ones that would run past midnight are left out.
-        Row(
-          spacing: 6,
-          children: [
-            for (final MapEntry(key: m, value: name) in _lengths.entries)
-              if (_start + m <= 1439)
-                Expanded(
-                  child: _Toggle(
-                    name: name,
-                    selected: m == length,
-                    onTap: () => setState(() {
-                      _end = _start + m;
-                      _error = '';
-                    }),
-                  ),
-                ),
-          ],
-        ),
-        if (widget.repeat == 'choose') ...[
-          _label('Repeat'),
+        if (_iconsOpen) _iconGrid(context),
+        if (widget.repeat == 'choose')
           Segmented<bool>(
             value: _repeats,
             onChanged: (v) => setState(() => _repeats = v),
-            options: const {false: 'Just this day', true: 'Every week'},
+            options: const {false: 'Once', true: 'Every week'},
           ),
-        ],
-        if (_repeats) ...[
-          if (widget.repeat != 'choose') _label('Repeats on'),
-          _chips([
-            for (final MapEntry(key: name, value: days) in _dayPresets.entries)
-              AppChip(name, selected: dayKey == days.join(), onPressed: () => setState(() => _days = [...days])),
-          ]),
+        if (_repeats)
           // All seven days in one row, so the week reads left to right.
           Row(
             spacing: 6,
@@ -1036,11 +1207,29 @@ class _BlockFormState extends State<BlockForm> {
                   ),
                 ),
             ],
-          ),
-        ],
-        if (_error.isNotEmpty) T(_error, color: context.colors.danger),
-        AppButton(widget.initial == null ? 'Add to calendar' : 'Save changes', icon: Icons.check, onPressed: _save),
-        if (widget.onDelete != null) AppButton(widget.deleteLabel, kind: ButtonKind.danger, onPressed: widget.onDelete),
+          )
+        else
+          _dayChoice(context),
+        _label('Time · ${_span(_length)}'),
+        StartTimeField(start: _start, length: _length, onChanged: (s) => setState(() => _start = s)),
+        // Every length in one row; ones that would run past midnight are left out.
+        Row(
+          spacing: 6,
+          children: [
+            for (final MapEntry(key: m, value: name) in _lengths.entries)
+              if (_start + m <= 1439)
+                Expanded(
+                  child: _Toggle(name: name, selected: m == _length, onTap: () => setState(() => _length = m)),
+                ),
+          ],
+        ),
+        if (_error.isNotEmpty) T(_error, color: c.danger),
+        AppButton(
+          widget.initial == null ? 'Add to calendar' : 'Save changes',
+          icon: Icons.check,
+          onPressed: _saving ? null : _save,
+        ),
+        ...widget.actions,
       ],
     );
   }

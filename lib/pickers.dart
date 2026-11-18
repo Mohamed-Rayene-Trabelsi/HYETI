@@ -124,44 +124,61 @@ class _DateFieldState extends State<DateField> {
   }
 }
 
-/* ---------- Start and end time ---------- */
+/* ---------- Start time ---------- */
 
 const _minutes = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
 
-/// Start and end times side by side; tapping one opens an hour and minute grid under both.
-class TimeRangeField extends StatefulWidget {
-  const TimeRangeField({super.key, required this.start, required this.end, required this.onChanged});
+/// When a block starts, with − and + for quarter-hour nudges; tapping the time opens an hour and minute grid.
+/// The end follows from the length, so there is only one time to set.
+class StartTimeField extends StatefulWidget {
+  const StartTimeField({super.key, required this.start, required this.length, required this.onChanged});
 
   /// Minutes since midnight.
   final int start;
-  final int end;
-  final void Function(int start, int end) onChanged;
+
+  /// Minutes; only used to show when the block ends and to keep it before midnight.
+  final int length;
+  final ValueChanged<int> onChanged;
 
   @override
-  State<TimeRangeField> createState() => _TimeRangeFieldState();
+  State<StartTimeField> createState() => _StartTimeFieldState();
 }
 
-class _TimeRangeFieldState extends State<TimeRangeField> {
-  /// 'start', 'end', or null when closed.
-  String? _open;
+class _StartTimeFieldState extends State<StartTimeField> {
+  bool _open = false;
 
-  void _set(int next) {
-    if (_open == 'start') {
-      // Moving the start keeps the block's length, as calendars do.
-      widget.onChanged(next, math.min(next + (widget.end - widget.start), 1439));
-    } else {
-      widget.onChanged(widget.start, next);
-    }
+  int get _latest => math.max(0, 1439 - math.max(widget.length, 5));
+
+  void _set(int minutes) => widget.onChanged(minutes.clamp(0, _latest));
+
+  /// To the next quarter hour up or down, so 09:10 + is 09:15 rather than 09:25.
+  void _nudge(int dir) {
+    tick();
+    final s = widget.start;
+    _set(dir > 0 ? (s ~/ 15 + 1) * 15 : ((s - 1) ~/ 15) * 15);
   }
-
-  void _toggle(String which) => setState(() => _open = _open == which ? null : which);
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final value = _open == 'end' ? widget.end : widget.start;
-    final hour = value ~/ 60;
-    final minute = value % 60;
+    final hour = widget.start ~/ 60;
+    final minute = widget.start % 60;
+    final end = math.min(widget.start + widget.length, 1439);
+
+    Widget nudge(IconData icon, String label, int dir) => Semantics(
+      button: true,
+      label: label,
+      excludeSemantics: true,
+      child: Material(
+        color: c.surfaceAlt,
+        shape: buttonShape,
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => _nudge(dir),
+          child: SizedBox(width: 52, height: 52, child: Icon(icon, color: c.text)),
+        ),
+      ),
+    );
 
     Widget grid(List<int> values, int selected, int Function(int) toMinutes, String Function(int) describe) {
       return LayoutBuilder(
@@ -210,30 +227,48 @@ class _TimeRangeFieldState extends State<TimeRangeField> {
         Row(
           spacing: Spacing.sm,
           children: [
+            nudge(Icons.remove, 'Earlier', -1),
             Expanded(
-              child: _PickerButton(
-                label: 'Starts',
-                value: formatTime(widget.start),
-                open: _open == 'start',
-                onTap: () => _toggle('start'),
+              child: Semantics(
+                button: true,
+                expanded: _open,
+                label: 'Starts at ${formatTime(widget.start)}, ends at ${formatTime(end)}',
+                excludeSemantics: true,
+                child: GestureDetector(
+                  onTap: () => setState(() => _open = !_open),
+                  child: Container(
+                    height: 52,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: c.surfaceAlt,
+                      borderRadius: BorderRadius.circular(Radii.button),
+                      border: Border.all(color: _open ? c.accent : c.border, width: _open ? 1.5 : 0.5),
+                    ),
+                    child: Text.rich(
+                      TextSpan(
+                        text: formatTime(widget.start),
+                        children: [
+                          TextSpan(
+                            text: '  –  ${formatTime(end)}',
+                            style: textStyle(context, TextVariant.body, dim: true),
+                          ),
+                        ],
+                      ),
+                      style: textStyle(context, TextVariant.heading).copyWith(fontSize: 20),
+                    ),
+                  ),
+                ),
               ),
             ),
-            Expanded(
-              child: _PickerButton(
-                label: 'Ends',
-                value: formatTime(widget.end),
-                open: _open == 'end',
-                onTap: () => _toggle('end'),
-              ),
-            ),
+            nudge(Icons.add, 'Later', 1),
           ],
         ),
-        if (_open != null) ...[
+        if (_open) ...[
           const T('Hour', variant: TextVariant.small, dim: true),
           grid([for (var h = 0; h < 24; h++) h], hour, (h) => h * 60 + minute, (h) => "$h o'clock"),
           const T('Minute', variant: TextVariant.small, dim: true),
           grid(_minutes, minute, (m) => hour * 60 + m, (m) => '$m minutes'),
-          AppButton('Done', kind: ButtonKind.soft, small: true, onPressed: () => setState(() => _open = null)),
+          AppButton('Done', kind: ButtonKind.soft, small: true, onPressed: () => setState(() => _open = false)),
         ],
       ],
     );

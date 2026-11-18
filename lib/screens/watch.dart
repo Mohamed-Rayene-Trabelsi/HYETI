@@ -8,7 +8,6 @@ import '../date.dart';
 import '../db.dart';
 import '../football.dart';
 import '../football_pickers.dart';
-import '../pickers.dart';
 import '../theme.dart';
 import '../ui.dart';
 import '../watch_api.dart';
@@ -196,26 +195,6 @@ class _WatchScreenState extends State<WatchScreen> with Live {
     );
   }
 
-  void _openAdd() {
-    showSheet(
-      context,
-      title: 'Add a title',
-      builder: (sheet) => _ManualForm(
-        onSave: (kind, title, date) async {
-          if (_items.any((i) => _sameTitle(i, kind, title))) return 'That is already on your list.';
-          await appDb.insert('INSERT INTO watch_items (kind, title, release_date, detail) VALUES (?, ?, ?, ?)', [
-            kind,
-            title,
-            date.isEmpty ? null : date,
-            '',
-          ]);
-          if (sheet.mounted) Navigator.pop(sheet);
-          return null;
-        },
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final tmdbKey = appDb.setting('tmdb_key', '');
@@ -248,8 +227,6 @@ class _WatchScreenState extends State<WatchScreen> with Live {
         if (tmdbKey.isEmpty && omdbKey.isEmpty)
           HeaderIcon(Icons.key_outlined, label: 'Movie and series keys', onPressed: _openKeys),
       ],
-      fabLabel: mine ? 'Add title' : null,
-      onFab: _openAdd,
       children: [
         Segmented<String>(
           value: tab,
@@ -1076,66 +1053,6 @@ class _FootballViewState extends State<_FootballView> {
           dim: true,
           align: TextAlign.center,
         ),
-      ],
-    );
-  }
-}
-
-class _ManualForm extends StatefulWidget {
-  const _ManualForm({required this.onSave});
-
-  /// Saves the title; returns a message when it cannot be added.
-  final Future<String?> Function(String kind, String title, String date) onSave;
-
-  @override
-  State<_ManualForm> createState() => _ManualFormState();
-}
-
-class _ManualFormState extends State<_ManualForm> {
-  final _title = TextEditingController();
-  String _kind = 'movie';
-  String _date = '';
-  String _error = '';
-
-  /// True while saving, so a second tap cannot add the title twice.
-  bool _busy = false;
-
-  @override
-  void dispose() {
-    _title.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    final title = _title.text.trim();
-    if (title.isEmpty) return setState(() => _error = 'Enter the title.');
-    setState(() => _busy = true);
-    final problem = await widget.onSave(_kind, title, _date);
-    if (!mounted) return;
-    setState(() {
-      _busy = false;
-      _error = problem ?? '';
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FormColumn(
-      children: [
-        Segmented<String>(
-          value: _kind,
-          onChanged: (v) => setState(() => _kind = v),
-          options: const {'movie': 'Movie', 'series': 'Series', 'anime': 'Anime', 'match': 'Match'},
-        ),
-        Field(label: 'Title', controller: _title, hint: _kind == 'match' ? 'Home vs Away' : 'Title', autofocus: true),
-        DateField(
-          label: _kind == 'match' ? 'Match day' : 'Release date',
-          value: _date,
-          onChanged: (d) => setState(() => _date = d),
-          optional: true,
-        ),
-        if (_error.isNotEmpty) T(_error, color: context.colors.danger),
-        AppButton('Add to my list', onPressed: _busy ? null : _save),
       ],
     );
   }

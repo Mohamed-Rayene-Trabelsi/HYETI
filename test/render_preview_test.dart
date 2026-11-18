@@ -231,6 +231,15 @@ void main() {
     messengerKey.currentState?.hideCurrentSnackBar();
     await settle(tester);
     await snap(tester, 'wallet');
+    await tester.tap(find.text('Take out').hitTestable());
+    await settle(tester);
+    await tester.tap(find.text('−\$20').hitTestable());
+    await settle(tester);
+    await snap(tester, 'jar_take_out');
+    await tester.tap(find.text('Keep it in the jar'));
+    await settle(tester);
+    await tester.tap(find.text('Close'));
+    await settle(tester);
     await tester.tap(find.text('Add').hitTestable());
     await settle(tester);
     await snap(tester, 'wallet_add');
