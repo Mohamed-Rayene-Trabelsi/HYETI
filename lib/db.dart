@@ -7,11 +7,11 @@ import 'package:sqflite/sqflite.dart';
 /// One row as returned by SQLite.
 typedef Rec = Map<String, Object?>;
 
-const _databaseVersion = 5;
+const _databaseVersion = 6;
 
 const _tables = [
   'events', 'routines', 'day_offs', 'notes', 'watch_items', //
-  'food_logs', 'workout_sets', 'transactions', 'ratings', 'settings',
+  'food_logs', 'workout_sets', 'transactions', 'ratings', 'settings', 'reading',
 ];
 
 /// The single database handle. Set once in `main` (and in tests).
@@ -228,6 +228,32 @@ Future<void> _migrate(Database db, int from) async {
   if (from < 5) {
     // A note that is a drawing keeps its strokes here as JSON; null for a written note.
     await db.execute('ALTER TABLE notes ADD COLUMN sketch TEXT');
+  }
+
+  if (from < 6) {
+    // Money dropped in the savings jar either leaves the wallet (1) or is new money that never was in it (0),
+    // like a cash gift put straight in the jar. Everything saved before this was taken from the wallet.
+    await db.execute('ALTER TABLE transactions ADD COLUMN from_wallet INTEGER NOT NULL DEFAULT 1');
+
+    // Genres of a saved title, as a comma list of the names in `lib/genres.dart`; null when not known yet.
+    await db.execute('ALTER TABLE watch_items ADD COLUMN genres TEXT');
+
+    // Manga, manhwa and manhua being read, with the chapter reached.
+    // kind: manga | manhwa | manhua | novel. status: reading | plan | completed | paused | dropped.
+    await db.execute('''CREATE TABLE reading (
+      id INTEGER PRIMARY KEY NOT NULL,
+      title TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'manga',
+      status TEXT NOT NULL DEFAULT 'reading',
+      chapter REAL NOT NULL DEFAULT 0,
+      total INTEGER,
+      link TEXT NOT NULL DEFAULT '',
+      ext_id TEXT,
+      poster TEXT,
+      genres TEXT,
+      updated_at INTEGER NOT NULL
+    )''');
+    await db.execute('CREATE UNIQUE INDEX reading_ext ON reading (ext_id) WHERE ext_id IS NOT NULL');
   }
 }
 

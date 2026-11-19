@@ -220,11 +220,17 @@ Future<void> openJarInfo(BuildContext context) {
           text: 'Give it a name and an amount, like a new bike. The jar is full when your savings reach it.',
         ),
         _InfoLine(
+          icon: Icons.account_balance_wallet_outlined,
+          title: 'Apart from your wallet',
+          text:
+              'Your wallet is the money you can spend. The jar is money you keep aside, and it is counted on its own.',
+        ),
+        _InfoLine(
           icon: Icons.savings_outlined,
           title: 'Drop money in',
           text:
-              'Tap the jar or “Drop in” whenever you put money aside. It is logged as saved, so it no longer counts '
-              'as money you can spend.',
+              'Tap the jar or “Drop in” whenever you put money aside. You are asked where it comes from: moved out of '
+              'your wallet, or new money (a gift, cash you found) that goes straight in and leaves your wallet as it is.',
         ),
         _InfoLine(
           icon: Icons.celebration_outlined,
@@ -234,7 +240,7 @@ Future<void> openJarInfo(BuildContext context) {
         _InfoLine(
           icon: Icons.outbox_outlined,
           title: 'Take money out',
-          text: 'Needed some of it back? “Take out” moves it back to what you can spend, and the jar drops.',
+          text: 'Needed some of it back? “Take out” moves it into your wallet, and the jar drops.',
         ),
         _InfoLine(
           icon: Icons.widgets_outlined,
@@ -278,6 +284,90 @@ class _InfoLine extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Asks where money going into the jar comes from: true when out of the wallet, false when it is new money
+/// that never was in the wallet, null when the person backs out. [wallet] is what the wallet holds now.
+Future<bool?> askJarSource(BuildContext context, {required String amount, required String wallet}) {
+  final c = context.colors;
+  Widget choice(BuildContext dialog, {required bool fromWallet}) {
+    final tint = fromWallet ? c.accent : coinGold;
+    return Material(
+      color: c.surfaceAlt,
+      borderRadius: BorderRadius.circular(Radii.md),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(Radii.md),
+        onTap: () {
+          tick();
+          Navigator.pop(dialog, fromWallet);
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(Spacing.md),
+          child: Row(
+            spacing: Spacing.md,
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(color: tint.withValues(alpha: 0.18), shape: BoxShape.circle),
+                child: Icon(
+                  fromWallet ? Icons.account_balance_wallet_outlined : Icons.card_giftcard_outlined,
+                  size: 20,
+                  color: c.text,
+                ),
+              ),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  spacing: 2,
+                  children: [
+                    T(fromWallet ? 'From my wallet' : 'New money', variant: TextVariant.label),
+                    T(
+                      fromWallet
+                          ? 'Moves out of your wallet, which has $wallet.'
+                          : 'A gift, cash, money from elsewhere. Your wallet stays as it is.',
+                      variant: TextVariant.small,
+                      dim: true,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  return showDialog<bool>(
+    context: context,
+    barrierColor: c.scrim,
+    builder: (dialog) => Dialog(
+      backgroundColor: c.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.lg)),
+      child: Padding(
+        padding: const EdgeInsets.all(Spacing.lg),
+        child: FormColumn(
+          children: [
+            T('$amount into the jar', variant: TextVariant.heading),
+            const T('Where does it come from?', dim: true),
+            choice(dialog, fromWallet: true),
+            choice(dialog, fromWallet: false),
+            AppButton('Cancel', kind: ButtonKind.plain, onPressed: () => Navigator.pop(dialog)),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+/// What the wallet holds: income, less spending and money moved from it to the jar, plus money taken out of the jar.
+Future<double> walletBalance() async {
+  final rows = await appDb.query('''
+    SELECT SUM(CASE WHEN kind IN ('income', 'withdraw') THEN amount
+                    WHEN kind = 'expense' OR (kind = 'saving' AND from_wallet = 1) THEN -amount END) AS balance
+    FROM transactions''');
+  return (rows.first['balance'] as num?)?.toDouble() ?? 0;
 }
 
 /// Asks before money leaves the jar. True when the person goes ahead.
@@ -337,18 +427,26 @@ class _JarMoveState extends State<_JarMove> {
   }
 
   Future<void> _move(double amount) async {
+    var fromWallet = true;
     if (_out) {
       if (amount > widget.takeOutOf! + 0.0001) {
         return setState(() => _error = 'There is only ${widget.money(widget.takeOutOf!)} in the jar.');
       }
       if (!await confirmTakeOut(context, widget.money(amount))) return;
+    } else {
+      final wallet = await walletBalance();
+      if (!mounted) return;
+      final source = await askJarSource(context, amount: widget.money(amount), wallet: widget.money(wallet));
+      if (source == null) return;
+      fromWallet = source;
     }
     HapticFeedback.mediumImpact();
-    await appDb.insert('INSERT INTO transactions (date, kind, amount, label) VALUES (?, ?, ?, ?)', [
+    await appDb.insert('INSERT INTO transactions (date, kind, amount, label, from_wallet) VALUES (?, ?, ?, ?, ?)', [
       todayKey(),
       _out ? 'withdraw' : 'saving',
       amount,
       _label.text.trim(),
+      fromWallet ? 1 : 0,
     ]);
     if (mounted) Navigator.pop(context);
   }
@@ -365,8 +463,8 @@ class _JarMoveState extends State<_JarMove> {
       children: [
         T(
           _out
-              ? 'There is ${widget.money(widget.takeOutOf!)} in the jar. Tap an amount to take it out.'
-              : 'Tap an amount to drop it in.',
+              ? 'There is ${widget.money(widget.takeOutOf!)} in the jar. Tap an amount to move it into your wallet.'
+              : 'Tap an amount to drop it in. You choose next whether it comes from your wallet.',
           dim: true,
         ),
         if (presets.isNotEmpty)

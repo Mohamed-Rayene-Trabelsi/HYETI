@@ -12,6 +12,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import android.os.Bundle
 import android.widget.RemoteViews
 import org.json.JSONObject
 import java.util.Locale
@@ -28,6 +29,9 @@ import kotlin.math.sin
  */
 class JarWidget : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) = render(context)
+
+    override fun onAppWidgetOptionsChanged(context: Context, manager: AppWidgetManager, id: Int, options: Bundle) =
+        render(context)
 
     private class Jar(val saved: Double, val target: Double?, val name: String, val currency: String)
 
@@ -148,7 +152,7 @@ class JarWidget : AppWidgetProvider() {
             val jar = try {
                 read(context)
             } catch (_: Exception) {
-                Jar(0.0, null, "", "$") // The app has the file busy; the next redraw will show it.
+                return // The app has the file busy; keep what is shown until the next redraw.
             }
             val fill = if (jar.target == null) 0.0 else (jar.saved / jar.target).coerceIn(0.0, 1.0)
 

@@ -16,11 +16,12 @@ A personal planner for Android. Calendar, gym and food log, wallet, watchlist an
 
 - **Home-screen widgets.** "Sketch" shows your newest sketch; tap it to keep drawing, or tap Draw for a blank canvas. Sketches are saved to Notes. "Savings jar" shows a jar of coins filling towards your savings goal, with a button to drop more in.
 - **Calendar.** Set up a weekly routine once and it fills in every day. Day and month views. Blocks are added from one sheet: pick one of sixteen activities, a start time and a one-tap length. Days off (weekdays and single dates) are set in Settings, and work blocks stay off them.
-- **Body.** A muscle map that shows what you trained and what has rested long enough, with exercise suggestions and set logging. There is a countdown for your gym membership, and a nutrition side with a calorie and macro plan and a food log.
-- **Wallet.** Income, spending and savings, a weekly budget, and a savings goal shown as a jar of coins that fills up (and cheers at every quarter) as you drop money in. Photograph a receipt and the amount, shop and date are filled in for you; the picture is read on the phone and never leaves it.
-- **Watch.** A watchlist for shows (movies and series), anime and football, with what's popular, what's coming out, and your football: the first time, pick your country, your clubs and any of the five big leagues, and see the next two weeks of their matches. Your country's and clubs' matches go on your calendar by themselves. Not into football? Say so once and the tab goes away. Search runs as you type. A watch night or a match can go straight onto the calendar.
+- **Body.** A muscle map that shows what you trained and what has rested long enough, with exercise suggestions and set logging. There is a countdown for your gym membership (pick its length: 1, 2, 3, 6 or 12 months, and renew it in one tap), and a nutrition side with a calorie and macro plan and a food log.
+- **Wallet.** What is in your wallet, income and spending, a weekly budget, and a savings jar kept apart from the wallet that fills up (and cheers at every quarter) as you drop money in. Each time, say whether the money comes out of your wallet or is new money, like a gift. Photograph a receipt and the amount, shop and date are filled in for you; the picture is read on the phone and never leaves it.
+- **Watch.** The first time, say what you are into (movies, series, anime, manga, football) and which genres you enjoy, and only those show up. A watchlist for shows (movies and series), anime and football, with what's popular, what's coming out, and your football: the first time, pick your country, your clubs and any of the five big leagues, and see the next two weeks of their matches. Your country's and clubs' matches go on your calendar by themselves. Not into football? Say so once and the tab goes away. Search runs as you type, every list can be filtered by genre, and "For you" suggests movies, series and anime from what you saved. A watch night or a match can go straight onto the calendar.
+- **Manga.** A reading list for manga, manhwa and manhua with the chapter you reached, one tap per chapter. Add titles from AniList's search or by hand, and bring a list in or out as a CSV file, from the clipboard, or from a link to a file in a GitHub repository or gist.
 - **Notes.** Written notes and finger-drawn sketches, which you can search and pin. Sketches have six pen colours, three pen sizes, an eraser, and undo and redo.
-- **Settings.** Light or dark, eight colour themes (one of them yours to mix), your country and its currency, units, days off, and a button that erases everything.
+- **Settings.** Grouped and labelled, with one Watch page for what you watch, favourite genres, the movie keys and the football you follow. Light or dark, eight colour themes (one of them yours to mix), your country and its currency, units, days off, and a button that erases everything.
 
 ## Install
 
@@ -76,7 +77,7 @@ One catch: the APK is signed with the debug key of the computer that built it. A
 | `test/` | Unit and widget tests. `test/preview/` has screenshots drawn by `render_preview_test.dart` |
 | `android/` | The Android project Flutter builds |
 
-Data lives in SQLite on the phone. The only network calls are the Watch tab's lookups to AniList, TMDB, OMDb and FotMob (football fixtures, only for the teams and leagues you follow), and a check on start for a newer release on GitHub.
+Data lives in SQLite on the phone. The only network calls are the Watch tab's lookups to AniList, TMDB, OMDb and FotMob (football fixtures, only for the teams and leagues you follow), downloading a reading list from a link you paste, and a check on start for a newer release on GitHub.
 
 ## Licence
 

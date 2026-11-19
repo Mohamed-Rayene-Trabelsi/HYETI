@@ -11,6 +11,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.os.Bundle
 import android.view.View
 import android.widget.RemoteViews
 import org.json.JSONObject
@@ -26,12 +27,20 @@ import org.json.JSONObject
 class SketchWidget : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) = render(context)
 
+    // Resized on the home screen: draw again, so the launcher never shows the bare starting layout.
+    override fun onAppWidgetOptionsChanged(context: Context, manager: AppWidgetManager, id: Int, options: Bundle) =
+        render(context)
+
     private class Latest(val id: Long, val title: String, val sketch: String)
 
     companion object {
-        /** Sketches are 3 wide to 4 tall, as in the app. */
-        private const val W = 480
-        private const val H = 640
+        /**
+         * Sketches are 3 wide to 4 tall, as in the app. Kept small on purpose: the picture travels to the launcher
+         * inside the widget update, and Android quietly drops an update that is too big (about 1 MB) when the
+         * launcher reloads its widgets later, leaving the widget blank. 300 x 400 is under half of that.
+         */
+        private const val W = 300
+        private const val H = 400
 
         private fun latest(context: Context): Latest? {
             val file = context.getDatabasePath("life.db")
@@ -107,7 +116,9 @@ class SketchWidget : AppWidgetProvider() {
             val latest = try {
                 latest(context)
             } catch (_: Exception) {
-                null // The app has the file busy; the next redraw will show it.
+                // The app has the file busy. Keep what the widget shows now rather than blanking it;
+                // the next redraw (leaving the app, or the half-hourly refresh) will catch up.
+                return
             }
             val picture = latest?.let { draw(it.sketch, context.getColor(R.color.widget_text)) }
 

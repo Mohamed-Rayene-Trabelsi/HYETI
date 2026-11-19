@@ -44,6 +44,14 @@ String addMonths(String key, int n) {
   return toKey(DateTime(d.year, d.month + n, 1));
 }
 
+/// [key] moved [n] months on, keeping the day of the month. A day the target month lacks becomes its last day:
+/// 31 January plus one month is the end of February.
+String addMonthsKeepDay(String key, int n) {
+  final d = fromKey(key);
+  final lastDay = DateTime(d.year, d.month + n + 1, 0).day;
+  return toKey(DateTime(d.year, d.month + n, d.day < lastDay ? d.day : lastDay));
+}
+
 /// e.g. "November 2026"
 String formatMonth(String key) {
   final d = fromKey(key);

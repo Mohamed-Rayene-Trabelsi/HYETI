@@ -733,11 +733,27 @@ class _MembershipForm extends StatefulWidget {
   State<_MembershipForm> createState() => _MembershipFormState();
 }
 
+/// The lengths a membership is usually sold for, in months.
+const membershipLengths = [1, 2, 3, 6, 12];
+
+/// How many months [start] to [end] is, when it is one of [membershipLengths]; null for any other length.
+int? membershipMonths(String start, String end) {
+  for (final n in membershipLengths) {
+    if (addMonthsKeepDay(start, n) == end) return n;
+  }
+  return null;
+}
+
 class _MembershipFormState extends State<_MembershipForm> {
   late final _gym = TextEditingController(text: widget.membership?['gym'] as String? ?? '');
   late final _price = TextEditingController(text: widget.membership?['price'] as String? ?? '');
   late String _start = widget.membership?['start'] as String? ?? todayKey();
-  late String _end = widget.membership?['end'] as String? ?? '';
+  late String _end = widget.membership?['end'] as String? ?? addMonthsKeepDay(_start, 1);
+
+  /// The length picked, in months; null when the end date was picked by hand.
+  late int? _months = widget.membership == null
+      ? 1
+      : (widget.membership!['months'] as num?)?.toInt() ?? membershipMonths(_start, _end);
   String _error = '';
 
   @override
@@ -747,26 +763,89 @@ class _MembershipFormState extends State<_MembershipForm> {
     super.dispose();
   }
 
+  void _setLength(int? months) => setState(() {
+    _months = months;
+    if (months != null) _end = addMonthsKeepDay(_start, months);
+    _error = '';
+  });
+
+  void _setStart(String start) => setState(() {
+    _start = start;
+    // A picked length keeps its length: the end moves with the start.
+    if (_months != null) _end = addMonthsKeepDay(start, _months!);
+  });
+
   void _save() {
     if (_end.isEmpty) return setState(() => _error = 'Pick the date it ends.');
     if (_end.compareTo(_start) <= 0) {
       return setState(() => _error = 'The end date has to be after the start date.');
     }
-    widget.onSave({'gym': _gym.text.trim(), 'start': _start, 'end': _end, 'price': _price.text.trim()});
+    widget.onSave({
+      'gym': _gym.text.trim(),
+      'start': _start,
+      'end': _end,
+      'price': _price.text.trim(),
+      'months': ?_months,
+    });
   }
+
+  /// Starts the next period of the same length where this one ends (or today, if it ended a while ago).
+  void _renew() {
+    final months = _months!;
+    final end = widget.membership!['end'] as String;
+    final today = todayKey();
+    final start = end.compareTo(today) < 0 ? today : end;
+    widget.onSave({
+      'gym': _gym.text.trim(),
+      'start': start,
+      'end': addMonthsKeepDay(start, months),
+      'price': _price.text.trim(),
+      'months': months,
+    });
+  }
+
+  String _monthsLabel(int n) => n == 12 ? '1 year' : '$n ${n == 1 ? 'month' : 'months'}';
 
   @override
   Widget build(BuildContext context) {
+    final old = widget.membership;
+    final canRenew = old != null && _months != null && daysBetween(todayKey(), old['end'] as String) <= 14;
     return FormColumn(
       children: [
         Field(label: 'Gym', controller: _gym, hint: 'Gym name'),
-        DateField(label: 'Started', value: _start, onChanged: (d) => setState(() => _start = d)),
-        DateField(label: 'Ends', value: _end, onChanged: (d) => setState(() => _end = d)),
+        DateField(label: 'Started', value: _start, onChanged: _setStart),
+        const T('How long', variant: TextVariant.label, dim: true),
+        Wrap(
+          spacing: Spacing.sm,
+          runSpacing: Spacing.sm,
+          children: [
+            for (final n in membershipLengths)
+              AppChip(_monthsLabel(n), selected: _months == n, onPressed: () => _setLength(n)),
+            AppChip('Other', selected: _months == null, onPressed: () => _setLength(null)),
+          ],
+        ),
+        if (_months == null)
+          DateField(
+            label: 'Ends',
+            value: _end,
+            onChanged: (d) => setState(() {
+              _end = d;
+              _months = membershipMonths(_start, d);
+            }),
+          )
+        else
+          T('Ends ${formatDay(_end)} ${_end.substring(0, 4)}', variant: TextVariant.small, dim: true),
         Field(label: 'Price (optional)', controller: _price, hint: 'e.g. 40 / month'),
         if (_error.isNotEmpty) T(_error, color: context.colors.danger),
         AppButton('Save', onPressed: _save),
-        if (widget.membership != null)
-          AppButton('Remove membership', kind: ButtonKind.danger, onPressed: () => widget.onSave(null)),
+        if (canRenew)
+          AppButton(
+            'Renew for ${_monthsLabel(_months!)}',
+            icon: Icons.autorenew,
+            kind: ButtonKind.soft,
+            onPressed: _renew,
+          ),
+        if (old != null) AppButton('Remove membership', kind: ButtonKind.danger, onPressed: () => widget.onSave(null)),
       ],
     );
   }

@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import 'date.dart';
 import 'db.dart';
+import 'genres.dart';
 
 /// Replaceable in tests.
 http.Client httpClient = http.Client();
@@ -21,6 +22,8 @@ class Found {
     required this.note,
     required this.rating,
     this.poster,
+    this.genres = const [],
+    this.reason = '',
   });
 
   /// Address of a small poster image, when the source has one.
@@ -41,6 +44,25 @@ class Found {
 
   /// e.g. "IMDb 8.1" or "TMDB 7.6"; empty when unrated.
   final String rating;
+
+  /// Genre names from `lib/genres.dart`.
+  final List<String> genres;
+
+  /// Why a title is suggested, e.g. "Because you saved Dune"; empty outside "For you".
+  final String reason;
+
+  Found withReason(String reason) => Found(
+    extId: extId,
+    kind: kind,
+    title: title,
+    releaseDate: releaseDate,
+    startMin: startMin,
+    note: note,
+    rating: rating,
+    poster: poster,
+    genres: genres,
+    reason: reason,
+  );
 }
 
 /// A service refused the key it was given.
@@ -52,29 +74,80 @@ class KeyError implements Exception {
 /// One page of titles found online, and whether a further page exists.
 typedef FoundPage = ({List<Found> items, bool more});
 
-/* ---------- Anime: AniList, no key ---------- */
+/// "Because you like Action and Comedy", from the liked genres of a suggested title.
+String _likeReason(Taste taste, List<String> genres) {
+  final liked = taste.liked(genres).take(2).toList();
+  return liked.isEmpty ? '' : 'Because you like ${liked.join(' and ')}';
+}
 
-const _anilistQuery = r'''
-query ($search: String, $page: Int, $sort: [MediaSort], $status: [MediaStatus]) {
+/// Puts suggestions best fit first: a title found from a saved one gets a head start, then liked genres decide.
+/// Ties keep the source's order.
+List<Found> rankForYou(Iterable<Found> found, Taste taste, {Set<String> similar = const {}}) {
+  double fit(Found f) => taste.score(f.genres) + (similar.contains(f.extId) ? 3 : 0);
+  final list = found.toList();
+  final order = {for (final (i, f) in list.indexed) f.extId: i};
+  return list..sort((a, b) {
+    final byFit = fit(b).compareTo(fit(a));
+    return byFit != 0 ? byFit : order[a.extId]!.compareTo(order[b.extId]!);
+  });
+}
+
+/* ---------- Anime and manga: AniList, no key ---------- */
+
+const _anilistFields = r'''
+fragment fields on Media {
+  id
+  title { romaji english }
+  averageScore
+  status
+  format
+  episodes
+  chapters
+  countryOfOrigin
+  genres
+  isAdult
+  nextAiringEpisode { airingAt episode }
+  startDate { year month day }
+  coverImage { medium }
+}''';
+
+const _anilistQuery =
+    r'''
+query ($type: MediaType, $search: String, $page: Int, $sort: [MediaSort], $status: [MediaStatus],
+    $genres: [String], $exclude: [Int], $minScore: Int) {
   Page(page: $page, perPage: 20) {
     pageInfo { hasNextPage }
-    media(type: ANIME, search: $search, sort: $sort, status_in: $status, isAdult: false) {
-      id
-      title { romaji english }
-      averageScore
-      status
-      format
-      episodes
-      nextAiringEpisode { airingAt episode }
-      startDate { year month day }
-      coverImage { medium }
+    media(type: $type, search: $search, sort: $sort, status_in: $status, genre_in: $genres, id_not_in: $exclude,
+        averageScore_greater: $minScore, isAdult: false) {
+      ...fields
     }
   }
-}''';
+}''' +
+    _anilistFields;
+
+/// What AniList's users recommend for each of the given anime.
+const _anilistSimilarQuery =
+    r'''
+query ($ids: [Int]) {
+  Page(perPage: 10) {
+    media(id_in: $ids, type: ANIME) {
+      title { romaji english }
+      recommendations(sort: RATING_DESC, perPage: 8) {
+        nodes { mediaRecommendation { ...fields } }
+      }
+    }
+  }
+}''' +
+    _anilistFields;
 
 const _anilistNextQuery = r'''
 query ($id: Int) {
   Media(id: $id, type: ANIME) { nextAiringEpisode { airingAt episode } }
+}''';
+
+const _anilistGenresQuery = r'''
+query ($id: Int) {
+  Media(id: $id) { genres }
 }''';
 
 Future<Map<String, dynamic>> _anilist(String query, Map<String, Object?> variables) async {
@@ -117,11 +190,64 @@ String _animeNote(Map<String, dynamic> m, {required bool dated}) {
   return [if (format.isNotEmpty) format, state].join(' · ');
 }
 
+String _anilistTitle(Map<String, dynamic> m) =>
+    ((m['title'] as Map<String, dynamic>?)?['english'] ?? m['title']?['romaji'] ?? 'Untitled') as String;
+
+Found _animeFound(Map<String, dynamic> m) {
+  final extId = 'anilist:${m['id']}';
+  final poster = (m['coverImage'] as Map<String, dynamic>?)?['medium'] as String?;
+  final title = _anilistTitle(m);
+  final score = m['averageScore'] as num?;
+  final rating = score != null && score > 0 ? 'AniList ${(score / 10).toStringAsFixed(1)}' : '';
+  final genres = anilistGenres(m['genres'] as List? ?? const []);
+  final next = m['nextAiringEpisode'] as Map<String, dynamic>?;
+  if (next != null) {
+    final at = DateTime.fromMillisecondsSinceEpoch((next['airingAt'] as int) * 1000);
+    final min = at.hour * 60 + at.minute;
+    return Found(
+      extId: extId,
+      kind: 'anime',
+      title: title,
+      rating: rating,
+      poster: poster,
+      genres: genres,
+      releaseDate: toKey(at),
+      startMin: min,
+      note: 'Episode ${next['episode']} · ${formatTime(min)}',
+    );
+  }
+  final start = m['startDate'] as Map<String, dynamic>;
+  final year = start['year'] as int?, month = start['month'] as int?, day = start['day'] as int?;
+  final known = year != null && month != null && day != null;
+  return Found(
+    extId: extId,
+    kind: 'anime',
+    title: title,
+    rating: rating,
+    poster: poster,
+    genres: genres,
+    releaseDate: known ? toKey(DateTime(year, month, day)) : null,
+    note: _animeNote(m, dated: known),
+  );
+}
+
+FoundPage _animePage(Map<String, dynamic> data) {
+  final result = data['Page'] as Map<String, dynamic>;
+  final media = result['media'] as List;
+  final more = (result['pageInfo'] as Map<String, dynamic>?)?['hasNextPage'] == true;
+  return (items: [for (final m in media.cast<Map<String, dynamic>>()) _animeFound(m)], more: more);
+}
+
 /// Page [page] (from 1) of anime. With no [search]: trending shows that are airing or about to.
 /// With one: the closest matches among all anime, finished ones included.
-Future<FoundPage> fetchAnime(String search, {int page = 1}) async {
+/// A [genre] keeps to that genre. A [taste] asks for suggestions instead (see [_animeForYou]).
+Future<FoundPage> fetchAnime(String search, {int page = 1, String? genre, Taste? taste}) async {
+  if (taste != null && search.isEmpty) return _animeForYou(taste, page: page, genre: genre);
+  final asked = genre == null ? null : anilistGenre(genre);
   final data = await _anilist(_anilistQuery, {
+    'type': 'ANIME',
     'page': page,
+    'genres': ?(asked == null ? null : [asked]),
     if (search.isNotEmpty) ...{
       'search': search,
       'sort': ['SEARCH_MATCH', 'POPULARITY_DESC'],
@@ -130,43 +256,129 @@ Future<FoundPage> fetchAnime(String search, {int page = 1}) async {
       'status': ['RELEASING', 'NOT_YET_RELEASED'],
     },
   });
+  return _animePage(data);
+}
+
+/// Anime picked for the person: what AniList's users recommend for anime they saved, then well-rated anime in
+/// the genre they like best. Nothing already on their lists.
+Future<FoundPage> _animeForYou(Taste taste, {required int page, String? genre}) async {
+  int? anilistId(String extId) => extId.startsWith('anilist:') ? int.tryParse(extId.substring(8)) : null;
+  final exclude = taste.saved.map(anilistId).nonNulls.toList();
+  final asked = genre == null ? null : anilistGenre(genre);
+  final genres = asked != null ? [asked] : taste.top(1).map(anilistGenre).nonNulls.toList();
+
+  final similar = <Found>[];
+  final similarIds = <String>{};
+  final seeds = taste.seeds.map((s) => anilistId(s.$1)).nonNulls.take(5).toList();
+  if (page == 1 && seeds.isNotEmpty) {
+    final data = await _anilist(_anilistSimilarQuery, {'ids': seeds});
+    for (final m in ((data['Page'] as Map<String, dynamic>)['media'] as List).cast<Map<String, dynamic>>()) {
+      final from = _anilistTitle(m);
+      final nodes = (m['recommendations'] as Map<String, dynamic>?)?['nodes'] as List? ?? const [];
+      for (final node in nodes.cast<Map<String, dynamic>>()) {
+        final rec = node['mediaRecommendation'] as Map<String, dynamic>?;
+        if (rec == null || rec['isAdult'] == true || exclude.contains(rec['id'])) continue;
+        final f = _animeFound(rec);
+        if (genre != null && !f.genres.contains(genre)) continue;
+        if (similarIds.add(f.extId)) similar.add(f.withReason('Because you saved $from'));
+      }
+    }
+  }
+
+  // With no liked genre yet, the most popular well-rated anime stand in.
+  final byGenre = _animePage(
+    await _anilist(_anilistQuery, {
+      'type': 'ANIME',
+      'page': page,
+      'sort': ['POPULARITY_DESC'],
+      'minScore': 70,
+      if (genres.isNotEmpty) 'genres': genres,
+      if (exclude.isNotEmpty) 'exclude': exclude,
+    }),
+  );
+  final rest = [
+    for (final f in byGenre.items)
+      if (!similarIds.contains(f.extId)) f.withReason(_likeReason(taste, f.genres)),
+  ];
+  return (items: rankForYou([...similar, ...rest], taste, similar: similarIds), more: byGenre.more);
+}
+
+/// A manga, manhwa or manhua found on AniList.
+class FoundManga {
+  const FoundManga({
+    required this.extId,
+    required this.title,
+    required this.kind,
+    required this.chapters,
+    required this.note,
+    required this.genres,
+    this.poster,
+  });
+
+  final String extId;
+  final String title;
+
+  /// 'manga', 'manhwa', 'manhua' or 'novel'.
+  final String kind;
+
+  /// How many chapters there are, when the series is finished and AniList knows; null otherwise.
+  final int? chapters;
+
+  /// e.g. "Manhwa · Releasing · AniList 8.4".
+  final String note;
+  final List<String> genres;
+  final String? poster;
+}
+
+/// The reading kind of an AniList manga: novels by format, the rest by country of origin.
+String mangaKind(String? format, String? country) => format == 'NOVEL'
+    ? 'novel'
+    : switch (country) {
+        'KR' => 'manhwa',
+        'CN' || 'TW' || 'HK' => 'manhua',
+        _ => 'manga',
+      };
+
+/// Page [page] of manga, manhwa and manhua: the closest matches to [search], or the most popular right now.
+Future<({List<FoundManga> items, bool more})> fetchManga(String search, {int page = 1, String? genre}) async {
+  final asked = genre == null ? null : anilistGenre(genre);
+  final data = await _anilist(_anilistQuery, {
+    'type': 'MANGA',
+    'page': page,
+    'genres': ?(asked == null ? null : [asked]),
+    if (search.isNotEmpty) ...{
+      'search': search,
+      'sort': ['SEARCH_MATCH', 'POPULARITY_DESC'],
+    } else
+      'sort': ['TRENDING_DESC'],
+  });
   final result = data['Page'] as Map<String, dynamic>;
-  final media = result['media'] as List;
   final more = (result['pageInfo'] as Map<String, dynamic>?)?['hasNextPage'] == true;
   final items = [
-    for (final m in media.cast<Map<String, dynamic>>())
+    for (final m in (result['media'] as List).cast<Map<String, dynamic>>())
       () {
-        final extId = 'anilist:${m['id']}';
-        final poster = (m['coverImage'] as Map<String, dynamic>?)?['medium'] as String?;
-        final title = (m['title']['english'] ?? m['title']['romaji'] ?? 'Untitled') as String;
+        final kind = mangaKind(m['format'] as String?, m['countryOfOrigin'] as String?);
         final score = m['averageScore'] as num?;
-        final rating = score != null && score > 0 ? 'AniList ${(score / 10).toStringAsFixed(1)}' : '';
-        final next = m['nextAiringEpisode'] as Map<String, dynamic>?;
-        if (next != null) {
-          final at = DateTime.fromMillisecondsSinceEpoch((next['airingAt'] as int) * 1000);
-          final min = at.hour * 60 + at.minute;
-          return Found(
-            extId: extId,
-            kind: 'anime',
-            title: title,
-            rating: rating,
-            poster: poster,
-            releaseDate: toKey(at),
-            startMin: min,
-            note: 'Episode ${next['episode']} · ${formatTime(min)}',
-          );
-        }
-        final start = m['startDate'] as Map<String, dynamic>;
-        final year = start['year'] as int?, month = start['month'] as int?, day = start['day'] as int?;
-        final known = year != null && month != null && day != null;
-        return Found(
-          extId: extId,
-          kind: 'anime',
-          title: title,
-          rating: rating,
-          poster: poster,
-          releaseDate: known ? toKey(DateTime(year, month, day)) : null,
-          note: _animeNote(m, dated: known),
+        final chapters = m['chapters'] as int?;
+        final state = switch (m['status']) {
+          'FINISHED' => chapters != null ? 'Finished · $chapters chapters' : 'Finished',
+          'RELEASING' => 'Releasing',
+          'HIATUS' => 'On hiatus',
+          'CANCELLED' => 'Cancelled',
+          _ => 'Not out yet',
+        };
+        return FoundManga(
+          extId: 'anilist:${m['id']}',
+          title: _anilistTitle(m),
+          kind: kind,
+          chapters: chapters,
+          genres: anilistGenres(m['genres'] as List? ?? const []),
+          poster: (m['coverImage'] as Map<String, dynamic>?)?['medium'] as String?,
+          note: [
+            '${kind[0].toUpperCase()}${kind.substring(1)}',
+            state,
+            if (score != null && score > 0) 'AniList ${(score / 10).toStringAsFixed(1)}',
+          ].join(' · '),
         );
       }(),
   ];
@@ -220,8 +432,9 @@ Future<String?> _imdbRating(String kind, int id, String tmdbKey, String omdbKey)
   return rating;
 }
 
-/// Hot (trending this week) or upcoming movies / series, each with a rating.
-/// [mode] is 'hot' or 'upcoming'; a non-empty [search] overrides it. [page] counts from 1.
+/// Hot (trending this week), upcoming or suggested movies / series, each with a rating.
+/// [mode] is 'hot', 'upcoming' or 'foryou' (which needs [taste]); a non-empty [search] overrides it.
+/// A [genre] keeps to that genre. [page] counts from 1.
 Future<FoundPage> fetchTitles(
   String kind,
   String mode,
@@ -229,15 +442,55 @@ Future<FoundPage> fetchTitles(
   required String tmdbKey,
   required String omdbKey,
   int page = 1,
+  String? genre,
+  Taste? taste,
 }) async {
   final type = _tmdbType(kind);
   final today = todayKey();
   final at = {'page': '$page'};
+  final genreId = genre == null ? null : tmdbGenreId(kind, genre);
+  final similar = <Map<String, dynamic>>[];
+  final similarFrom = <int, String>{};
   final Map<String, dynamic> result;
   if (search.isNotEmpty) {
+    // TMDB's search takes no genre; the results are sifted below instead.
     result = await _tmdb('/search/$type', tmdbKey, {'query': search, ...at});
-  } else if (mode == 'hot') {
+  } else if (mode == 'foryou' && taste != null) {
+    // What TMDB suggests for the newest titles saved, then popular, well-voted titles in the liked genres.
+    if (page == 1) {
+      final seeds = [
+        for (final (id, title) in taste.seeds)
+          if (id.startsWith('tmdb:$kind:')) (int.tryParse(id.split(':')[2]), title),
+      ].where((s) => s.$1 != null).take(3);
+      final answers = await Future.wait([
+        for (final (id, title) in seeds)
+          _tmdb(
+            '/$type/$id/recommendations',
+            tmdbKey,
+          ).then<(String, Map<String, dynamic>?)>((r) => (title, r), onError: (_) => (title, null)),
+      ]);
+      for (final (title, r) in answers) {
+        for (final item in ((r?['results'] as List?) ?? const []).cast<Map<String, dynamic>>()) {
+          final id = item['id'] as int;
+          if (similarFrom.containsKey(id)) continue;
+          similarFrom[id] = title;
+          similar.add(item);
+        }
+      }
+    }
+    final liked = genreId != null ? [genreId] : {for (final g in taste.top()) ?tmdbGenreId(kind, g)}.toList();
+    result = await _tmdb('/discover/$type', tmdbKey, {
+      'sort_by': 'popularity.desc',
+      'vote_count.gte': '150',
+      // Any of the liked genres, not all of them.
+      if (liked.isNotEmpty) 'with_genres': liked.join('|'),
+      ...at,
+    });
+  } else if (mode == 'hot' && genreId == null) {
     result = await _tmdb('/trending/$type/week', tmdbKey, at);
+  } else if (mode == 'hot') {
+    // Trending takes no genre either; the most popular titles of the genre come closest.
+    result = await _tmdb('/discover/$type', tmdbKey, {'sort_by': 'popularity.desc', 'with_genres': '$genreId', ...at});
   } else {
     // Popular titles whose first release falls in the next three months.
     final dateField = kind == 'movie' ? 'primary_release_date' : 'first_air_date';
@@ -245,12 +498,19 @@ Future<FoundPage> fetchTitles(
       'sort_by': 'popularity.desc',
       '$dateField.gte': today,
       '$dateField.lte': addDays(today, 90),
+      'with_genres': ?genreId?.toString(),
       ...at,
     });
   }
 
   final more = page < ((result['total_pages'] as num?) ?? 1);
-  final items = (result['results'] as List).cast<Map<String, dynamic>>();
+  final seen = <int>{};
+  final items = [
+    for (final item in [...similar, ...(result['results'] as List).cast<Map<String, dynamic>>()])
+      if (seen.add(item['id'] as int))
+        if (taste == null || !taste.saved.contains('tmdb:$kind:${item['id']}'))
+          if (genre == null || tmdbGenres(kind, item['genre_ids'] as List? ?? const []).contains(genre)) item,
+  ];
   final found = await Future.wait([
     for (final item in items)
       () async {
@@ -272,6 +532,8 @@ Future<FoundPage> fetchTitles(
           }
           if (imdb != null) rating = 'IMDb $imdb';
         }
+        final genres = tmdbGenres(kind, item['genre_ids'] as List? ?? const []);
+        final from = similarFrom[item['id']];
         return Found(
           extId: 'tmdb:$kind:${item['id']}',
           kind: kind,
@@ -283,6 +545,12 @@ Future<FoundPage> fetchTitles(
               ? 'Released'
               : 'Premiere',
           rating: rating,
+          genres: genres,
+          reason: taste == null
+              ? ''
+              : from != null
+              ? 'Because you saved $from'
+              : _likeReason(taste, genres),
           poster: switch (item['poster_path']) {
             final String path when path.isNotEmpty => 'https://image.tmdb.org/t/p/w185$path',
             _ => null,
@@ -290,7 +558,9 @@ Future<FoundPage> fetchTitles(
         );
       }(),
   ]);
-  return (items: found, more: more);
+  if (taste == null) return (items: found, more: more);
+  final similarIds = {for (final id in similarFrom.keys) 'tmdb:$kind:$id'};
+  return (items: rankForYou(found, taste, similar: similarIds), more: more);
 }
 
 /// For a series already on air: the date and label of its next episode, if one is scheduled.
@@ -300,4 +570,20 @@ Future<({String date, String note})?> nextEpisode(String extId, String key) asyn
   final date = next?['air_date'] as String?;
   if (next == null || date == null) return null;
   return (date: date, note: 'Season ${next['season_number']} episode ${next['episode_number']}');
+}
+
+/// The genres of a saved title, looked up by its `ext_id`, for titles saved before genres were kept.
+/// Null when it cannot be looked up (no key, or not from AniList or TMDB).
+Future<List<String>?> fetchGenres(String extId, String tmdbKey) async {
+  final parts = extId.split(':');
+  if (parts.first == 'anilist') {
+    final data = await _anilist(_anilistGenresQuery, {'id': int.parse(parts[1])});
+    return anilistGenres((data['Media'] as Map<String, dynamic>?)?['genres'] as List? ?? const []);
+  }
+  if (parts.first == 'tmdb' && parts.length == 3 && tmdbKey.isNotEmpty) {
+    final kind = parts[1];
+    final details = await _tmdb('/${_tmdbType(kind)}/${parts[2]}', tmdbKey);
+    return tmdbGenres(kind, [for (final g in (details['genres'] as List? ?? const [])) (g as Map)['id']]);
+  }
+  return null;
 }

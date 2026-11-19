@@ -106,6 +106,8 @@ void main() {
   setUp(() async {
     sqfliteFfiInit();
     appDb = await AppDb.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
+    // Past the Watch tab's first-time questions, showing everything; the setup has tests of its own.
+    await appDb.setSetting('watch_prefs', {'setUp': true});
   });
 
   tearDown(() => appDb.raw.close());
@@ -260,8 +262,9 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.settings_outlined).hitTestable());
     await settle(tester);
+    await tapText(tester, 'Watch');
+    expect(find.text('Football'), findsOneWidget, reason: 'offered, but not ticked');
     await tapText(tester, 'Football');
-    await tapText(tester, 'I follow football');
     expect(footballPrefs().off, isFalse);
     expect(find.text('National team'), findsOneWidget);
   });

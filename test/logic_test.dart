@@ -89,6 +89,14 @@ void main() {
     expect(guessCategory('Something else'), isNull);
   });
 
+  test('months are added keeping the day, or the last day of a shorter month', () {
+    expect(addMonthsKeepDay('2026-01-15', 1), '2026-02-15');
+    expect(addMonthsKeepDay('2026-01-31', 1), '2026-02-28');
+    expect(addMonthsKeepDay('2028-01-31', 1), '2028-02-29');
+    expect(addMonthsKeepDay('2026-11-30', 3), '2027-02-28');
+    expect(addMonthsKeepDay('2026-03-10', 12), '2027-03-10');
+  });
+
   group('savings jar', () {
     test('fills towards the goal and stops at full', () {
       expect(jarFill(50, 200), 0.25);

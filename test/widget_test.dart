@@ -6,6 +6,7 @@ import 'package:personal_mobile_app/db.dart';
 import 'package:personal_mobile_app/jar.dart';
 import 'package:personal_mobile_app/main.dart';
 import 'package:personal_mobile_app/sketch.dart';
+import 'package:personal_mobile_app/ui.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Database calls finish on a real event loop, so let them land and then draw.
@@ -62,6 +63,8 @@ void main() {
   setUp(() async {
     sqfliteFfiInit();
     appDb = await AppDb.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
+    // Past the Watch tab's first-time questions, showing everything; the setup has tests of its own.
+    await appDb.setSetting('watch_prefs', {'setUp': true});
   });
 
   tearDown(() => appDb.raw.close());
@@ -159,6 +162,9 @@ void main() {
   testWidgets('a repeating block can be removed from every week, and put back', (tester) async {
     await start(tester);
     await addRoutine(tester);
+    // Depending on the time of day, Lunch can also be the "next up" card, so count rather than expect one.
+    final shown = find.text('Lunch').evaluate().length;
+    expect(shown, greaterThan(0));
     await tapText(tester, 'Lunch');
     await tapText(tester, 'Remove from every week');
 
@@ -170,7 +176,7 @@ void main() {
 
     await tapText(tester, 'Undo');
     expect(await titles(), contains('Lunch'));
-    expect(find.text('Lunch'), findsOneWidget);
+    expect(find.text('Lunch'), findsNWidgets(shown));
   });
 
   testWidgets('a single block can be removed from the calendar', (tester) async {
@@ -260,12 +266,47 @@ void main() {
 
     await tapText(tester, 'Drop in');
     await tapText(tester, '+\$10');
+    // Where the money comes from is asked every time.
+    expect(find.text('Where does it come from?'), findsOneWidget);
+    await tapText(tester, 'From my wallet');
 
     final rows = await tester.runAsync(() => appDb.query("SELECT * FROM transactions WHERE kind = 'saving'"));
     expect(rows!.single['amount'], 10);
+    expect(rows.single['from_wallet'], 1);
     expect(find.text('25% of \$40'), findsOneWidget);
     // Passing a quarter of the goal is cheered.
     expect(find.text(jarCheers[25]!), findsOneWidget);
+  });
+
+  String shownBalance(WidgetTester tester) => tester.widget<T>(find.byKey(const Key('wallet-balance'))).text;
+
+  testWidgets('money dropped in the jar from the wallet leaves it; new money does not', (tester) async {
+    await start(tester);
+    await tester.runAsync(
+      () => appDb.insert("INSERT INTO transactions (date, kind, amount, label) VALUES (?, 'income', 100, '')", [
+        todayKey(),
+      ]),
+    );
+    await openTab(tester, 'Wallet');
+    expect(shownBalance(tester), r'$100');
+
+    await tapText(tester, 'Drop in');
+    await tapText(tester, '+\$20');
+    await tapText(tester, 'From my wallet');
+    expect(shownBalance(tester), r'$80');
+
+    await tapText(tester, 'Drop in');
+    await tapText(tester, '+\$50');
+    await tapText(tester, 'New money');
+    expect(shownBalance(tester), r'$80', reason: 'a gift put straight in the jar never was in the wallet');
+    expect(find.text('Into the jar · new money'), findsOneWidget);
+
+    // Backing out of the question puts nothing in.
+    await tapText(tester, 'Drop in');
+    await tapText(tester, '+\$5');
+    await tapText(tester, 'Cancel');
+    final rows = await tester.runAsync(() => appDb.query("SELECT * FROM transactions WHERE kind = 'saving'"));
+    expect([for (final r in rows!) (r['amount'], r['from_wallet'])], [(20, 1), (50, 0)]);
   });
 
   testWidgets('taking money out of the jar asks first, and only goes ahead when told to', (tester) async {
@@ -307,17 +348,19 @@ void main() {
     await tapText(tester, 'Add');
     await tester.enterText(field(0), '1200');
     await tester.enterText(field(1), 'Salary');
+    // Saving is not one of the choices any more: it has the jar.
+    expect(find.text('Saved'), findsNothing);
     await tapText(tester, 'Income');
-    await tapText(tester, 'Save');
+    await tapText(tester, 'Save income');
 
-    expect(find.text(r'Available: $1,200'), findsOneWidget);
+    expect(shownBalance(tester), r'$1,200');
 
     await tapText(tester, 'Salary');
     expect(find.text('Edit transaction'), findsOneWidget);
     await tester.enterText(field(0), '1500');
     await tapText(tester, 'Save');
 
-    expect(find.text(r'Available: $1,500'), findsOneWidget);
+    expect(shownBalance(tester), r'$1,500');
     final rows = await tester.runAsync(() => appDb.query('SELECT * FROM transactions'));
     expect(rows, hasLength(1));
   });
@@ -333,7 +376,7 @@ void main() {
 
     expect(tester.widget<TextField>(field(0)).controller!.text, '23.75');
     expect(tester.widget<TextField>(field(1)).controller!.text, 'Corner Shop');
-    await tapText(tester, 'Save');
+    await tapText(tester, 'Save expense');
     final row = (await tester.runAsync(() => appDb.query('SELECT * FROM transactions')))!.single;
     expect(row['amount'], 23.75);
     expect(row['kind'], 'expense');
@@ -451,6 +494,17 @@ void main() {
     await openTab(tester, 'Wallet');
     expect(find.text('Note deleted'), findsNothing);
     expect(await tester.runAsync(() => appDb.query('SELECT * FROM notes')), isEmpty);
+  });
+
+  testWidgets('a gym membership is set by its length, and the end follows the start', (tester) async {
+    await start(tester);
+    await openTab(tester, 'Body');
+    await tapText(tester, 'Gym membership');
+    await tapText(tester, '3 months');
+    await tapText(tester, 'Save');
+    final m = appDb.setting<Map<String, Object?>?>('membership', null)!;
+    expect(m['months'], 3);
+    expect(m['end'], addMonthsKeepDay(m['start'] as String, 3));
   });
 
   testWidgets('choosing a country sets the currency', (tester) async {

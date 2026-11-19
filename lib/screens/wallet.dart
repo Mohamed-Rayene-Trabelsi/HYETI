@@ -10,15 +10,16 @@ import '../receipt.dart';
 import '../theme.dart';
 import '../ui.dart';
 
-const _kindLabel = {'expense': 'Spent', 'income': 'Income', 'saving': 'Saved'};
+/// What each kind of row is called in the list.
+const _rowLabel = {'expense': 'Spent', 'income': 'Income', 'saving': 'Into the jar', 'withdraw': 'Taken from the jar'};
 
-/// Every kind a row can have: the three above, plus money taken back out of the savings jar.
-const _rowLabel = {..._kindLabel, 'withdraw': 'Taken from the jar'};
-
+/// saving: what is in the jar. moved: the part of it that came out of the wallet (money dropped in as new money
+/// never was in the wallet, while money taken out of the jar always goes into it).
 const _sums = '''
   SUM(CASE WHEN kind = 'income' THEN amount END) AS income,
   SUM(CASE WHEN kind = 'expense' THEN amount END) AS expense,
-  SUM(CASE WHEN kind = 'saving' THEN amount WHEN kind = 'withdraw' THEN -amount END) AS saving''';
+  SUM(CASE WHEN kind = 'saving' THEN amount WHEN kind = 'withdraw' THEN -amount END) AS saving,
+  SUM(CASE WHEN kind = 'saving' AND from_wallet = 1 THEN amount WHEN kind = 'withdraw' THEN -amount END) AS moved''';
 
 double? parseAmount(String text) {
   final n = double.tryParse(text.replaceFirst(',', '.').replaceAll(RegExp(r'[^\d.]'), ''));
@@ -111,7 +112,8 @@ class _WalletScreenState extends State<WalletScreen> with Live {
       context,
       title: 'Add transaction',
       builder: (sheet) => _TxForm(
-        onSave: (kind, amount, label, date) async {
+        money: _money,
+        onSave: (kind, amount, label, date, _) async {
           await appDb.insert('INSERT INTO transactions (date, kind, amount, label) VALUES (?, ?, ?, ?)', [
             date,
             kind,
@@ -119,6 +121,10 @@ class _WalletScreenState extends State<WalletScreen> with Live {
             label,
           ]);
           if (sheet.mounted) Navigator.pop(sheet);
+        },
+        onJar: () {
+          Navigator.pop(sheet);
+          openJarDrop(context, money: _money);
         },
       ),
     );
@@ -130,14 +136,12 @@ class _WalletScreenState extends State<WalletScreen> with Live {
       title: 'Edit transaction',
       builder: (sheet) => _TxForm(
         initial: t,
-        onSave: (kind, amount, label, date) async {
-          await appDb.run('UPDATE transactions SET date = ?, kind = ?, amount = ?, label = ? WHERE id = ?', [
-            date,
-            kind,
-            amount,
-            label,
-            t['id'],
-          ]);
+        money: _money,
+        onSave: (kind, amount, label, date, fromWallet) async {
+          await appDb.run(
+            'UPDATE transactions SET date = ?, kind = ?, amount = ?, label = ?, from_wallet = ? WHERE id = ?',
+            [date, kind, amount, label, fromWallet ? 1 : 0, t['id']],
+          );
           if (sheet.mounted) Navigator.pop(sheet);
         },
         onDelete: () async {
@@ -174,9 +178,9 @@ class _WalletScreenState extends State<WalletScreen> with Live {
     final weekIncome = _num(_week['income']);
     final weekSpent = _num(_week['expense']);
     final saved = _num(_all['saving']);
-    final available = _num(_all['income']) - _num(_all['expense']) - saved;
+    final available = _num(_all['income']) - _num(_all['expense']) - _num(_all['moved']);
     final daysLeft = 7 - daysBetween(weekFrom, today);
-    final weekLeft = weekIncome - weekSpent - _num(_week['saving']);
+    final weekLeft = weekIncome - weekSpent - _num(_week['moved']);
 
     // Recent transactions, grouped under their day.
     final groups = <String, List<Rec>>{};
@@ -186,10 +190,41 @@ class _WalletScreenState extends State<WalletScreen> with Live {
 
     return Screen(
       title: 'Wallet',
-      subtitle: 'Available: ${_money(available)}',
       fabLabel: 'Add',
       onFab: _openAdd,
       children: [
+        // The wallet comes first and on its own card, so it is never mistaken for the jar below.
+        AppCard(
+          spacing: Spacing.xs,
+          children: [
+            Row(
+              spacing: Spacing.sm,
+              children: [
+                Icon(Icons.account_balance_wallet_outlined, size: 18, color: c.accent),
+                const Expanded(child: T('IN YOUR WALLET', variant: TextVariant.label, dim: true)),
+              ],
+            ),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: T(
+                _money(available),
+                key: const Key('wallet-balance'),
+                variant: TextVariant.number,
+                color: available < 0 ? c.danger : null,
+                style: const TextStyle(fontSize: 40),
+                maxLines: 1,
+              ),
+            ),
+            T(
+              available < 0
+                  ? 'You have spent more than you logged coming in.'
+                  : 'Money you can spend. The savings jar is separate.',
+              variant: TextVariant.small,
+              dim: true,
+            ),
+          ],
+        ),
         AppCard(
           spacing: Spacing.md,
           children: [
@@ -240,7 +275,7 @@ class _WalletScreenState extends State<WalletScreen> with Live {
                         children: [
                           Expanded(
                             child: T(
-                              goal != null ? (goal['name'] as String).toUpperCase() : 'SAVINGS JAR',
+                              goal != null ? 'SAVINGS JAR · ${(goal['name'] as String).toUpperCase()}' : 'SAVINGS JAR',
                               variant: TextVariant.label,
                               dim: true,
                               maxLines: 1,
@@ -274,6 +309,7 @@ class _WalletScreenState extends State<WalletScreen> with Live {
                         dim: true,
                       ),
                       if (goal != null) T(_goalHint(goal, saved), variant: TextVariant.small, dim: true),
+                      T('Kept apart from your wallet', variant: TextVariant.small, color: c.textDim),
                     ],
                   ),
                 ),
@@ -317,7 +353,7 @@ class _WalletScreenState extends State<WalletScreen> with Live {
           const Empty(
             icon: Icons.receipt_long_outlined,
             title: 'No transactions yet',
-            hint: 'Tap “Add” to log income, spending or money you put aside.',
+            hint: 'Tap “Add” to log income or spending. Money you put aside goes in the jar.',
           ),
         for (final g in groups.entries)
           Section(
@@ -339,8 +375,13 @@ class _WalletScreenState extends State<WalletScreen> with Live {
   String _dayTotal(List<Rec> txs) {
     var net = 0.0;
     for (final t in txs) {
-      // Income and money taken out of the jar come back to what is available; the rest leaves it.
-      net += t['kind'] == 'income' || t['kind'] == 'withdraw' ? _num(t['amount']) : -_num(t['amount']);
+      // Income and money taken out of the jar come into the wallet; spending and money moved to the jar leave it.
+      // New money dropped straight into the jar never touches the wallet.
+      net += switch (t['kind']) {
+        'income' || 'withdraw' => _num(t['amount']),
+        'saving' when t['from_wallet'] == 0 => 0,
+        _ => -_num(t['amount']),
+      };
     }
     return '${net >= 0 ? '+' : '−'}${_money(net.abs())}';
   }
@@ -349,6 +390,9 @@ class _WalletScreenState extends State<WalletScreen> with Live {
     final c = context.colors;
     final kind = t['kind'] as String;
     final label = t['label'] as String;
+    final kindText = kind == 'saving'
+        ? (t['from_wallet'] == 0 ? 'Into the jar · new money' : 'Into the jar · from wallet')
+        : _rowLabel[kind]!;
     final sign = switch (kind) {
       'income' || 'withdraw' => '+',
       'expense' => '−',
@@ -375,7 +419,7 @@ class _WalletScreenState extends State<WalletScreen> with Live {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               T(label.isNotEmpty ? label : _rowLabel[kind]!, maxLines: 1),
-              if (label.isNotEmpty) T(_rowLabel[kind]!, variant: TextVariant.small, dim: true),
+              if (label.isNotEmpty || kind == 'saving') T(kindText, variant: TextVariant.small, dim: true),
             ],
           ),
         ),
@@ -484,13 +528,25 @@ class _WeekBars extends StatelessWidget {
   }
 }
 
+/// One-tap labels for a new row, by kind.
+const _suggestions = {
+  'expense': ['Groceries', 'Food', 'Transport', 'Bills', 'Shopping', 'Health', 'Going out'],
+  'income': ['Salary', 'Freelance', 'Gift', 'Refund', 'Sold something'],
+};
+
 class _TxForm extends StatefulWidget {
-  const _TxForm({required this.onSave, this.initial, this.onDelete});
+  const _TxForm({required this.onSave, required this.money, this.initial, this.onDelete, this.onJar});
 
   /// A transactions row to edit; null for a new one.
   final Rec? initial;
-  final void Function(String kind, double amount, String label, String date) onSave;
+  final String Function(double) money;
+
+  /// [fromWallet] only means something for money put in the jar.
+  final void Function(String kind, double amount, String label, String date, bool fromWallet) onSave;
   final VoidCallback? onDelete;
+
+  /// Leaves this sheet for the jar's, for money being put aside rather than spent or earned.
+  final VoidCallback? onJar;
 
   @override
   State<_TxForm> createState() => _TxFormState();
@@ -503,6 +559,7 @@ class _TxFormState extends State<_TxForm> {
   late final _label = TextEditingController(text: widget.initial?['label'] as String? ?? '');
   late String _kind = widget.initial?['kind'] as String? ?? 'expense';
   late String _date = widget.initial?['date'] as String? ?? todayKey();
+  late bool _fromWallet = widget.initial?['from_wallet'] != 0;
   String _error = '';
 
   /// What the last receipt scan came to, shown under the scan buttons.
@@ -511,6 +568,9 @@ class _TxFormState extends State<_TxForm> {
 
   /// The total and the other prices the last scan found, offered as chips so a misread total is one tap to fix.
   List<double> _found = [];
+
+  /// A row of the savings jar, edited here but never made here: new jar money goes through the jar's own sheet.
+  bool get _jarRow => _kind == 'saving' || _kind == 'withdraw';
 
   /// An amount as it goes in the field: up to three decimals, for currencies that have them, and no trailing zeros.
   static String _amountText(double n) => n.toStringAsFixed(3).replaceFirst(RegExp(r'\.?0+$'), '');
@@ -525,7 +585,7 @@ class _TxFormState extends State<_TxForm> {
   void _save() {
     final n = parseAmount(_amount.text);
     if (n == null) return setState(() => _error = 'Enter an amount above zero.');
-    widget.onSave(_kind, n, _label.text.trim(), _date);
+    widget.onSave(_kind, n, _label.text.trim(), _date, _fromWallet);
   }
 
   /// Reads a receipt from the camera or a saved photo and fills in what it can.
@@ -571,9 +631,66 @@ class _TxFormState extends State<_TxForm> {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
+    final currency = appDb.setting('currency', r'$');
+    final tint = switch (_kind) {
+      'income' => c.success,
+      'saving' || 'withdraw' => c.accent,
+      _ => c.text,
+    };
+    final isNew = widget.initial == null;
     return FormColumn(
       children: [
-        if (widget.initial == null) ...[
+        if (_jarRow)
+          T(
+            _kind == 'saving'
+                ? 'Money put in the savings jar.'
+                : 'Money taken out of the savings jar, into your wallet.',
+            dim: true,
+          )
+        else
+          Row(
+            spacing: Spacing.sm,
+            children: [
+              Expanded(
+                child: _KindTile(
+                  title: 'Expense',
+                  subtitle: 'Money out',
+                  icon: Icons.north_east,
+                  tint: c.danger,
+                  selected: _kind == 'expense',
+                  onTap: () => setState(() => _kind = 'expense'),
+                ),
+              ),
+              Expanded(
+                child: _KindTile(
+                  title: 'Income',
+                  subtitle: 'Money in',
+                  icon: Icons.south_west,
+                  tint: c.success,
+                  selected: _kind == 'income',
+                  onTap: () => setState(() => _kind = 'income'),
+                ),
+              ),
+            ],
+          ),
+        TextField(
+          controller: _amount,
+          autofocus: isNew,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          textInputAction: TextInputAction.next,
+          onChanged: (_) => setState(() {}),
+          style: TextStyle(fontSize: 34, fontWeight: FontWeight.w700, color: tint),
+          decoration: fieldDecoration(context, hint: '0').copyWith(
+            prefixText: currency.length <= 1 ? '$currency ' : null,
+            suffixText: currency.length > 1 ? ' $currency' : null,
+            prefixStyle: TextStyle(fontSize: 22, color: c.textDim),
+            suffixStyle: TextStyle(fontSize: 18, color: c.textDim),
+            hintStyle: TextStyle(fontSize: 34, fontWeight: FontWeight.w700, color: c.textDim.withValues(alpha: 0.4)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: Spacing.lg, vertical: Spacing.lg),
+          ),
+        ),
+        if (isNew && _kind == 'expense') ...[
           Row(
             spacing: Spacing.sm,
             children: [
@@ -581,6 +698,7 @@ class _TxFormState extends State<_TxForm> {
                 child: AppButton(
                   _scanning ? 'Reading…' : 'Scan receipt',
                   kind: ButtonKind.soft,
+                  small: true,
                   icon: Icons.document_scanner_outlined,
                   onPressed: _scanning ? null : () => _scan(camera: true),
                 ),
@@ -589,6 +707,7 @@ class _TxFormState extends State<_TxForm> {
                 child: AppButton(
                   'From a photo',
                   kind: ButtonKind.soft,
+                  small: true,
                   icon: Icons.photo_library_outlined,
                   onPressed: _scanning ? null : () => _scan(camera: false),
                 ),
@@ -610,38 +729,130 @@ class _TxFormState extends State<_TxForm> {
               ],
             ),
         ],
-        Segmented<String>(
-          value: _kind,
-          onChanged: (v) => setState(() => _kind = v),
-          // A row taken from the jar keeps that kind when edited; new rows offer the usual three.
-          options: _kind == 'withdraw' || widget.initial?['kind'] == 'withdraw'
-              ? const {..._kindLabel, 'withdraw': 'Taken out'}
-              : _kindLabel,
-        ),
-        Field(
-          label: 'Amount',
-          controller: _amount,
-          hint: '0',
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          textInputAction: TextInputAction.next,
-          autofocus: widget.initial == null,
-        ),
         Field(
           label: 'What for (optional)',
           controller: _label,
           textInputAction: TextInputAction.done,
+          onChanged: (_) => setState(() {}),
           onSubmitted: (_) => _save(),
           hint: switch (_kind) {
             'income' => 'Salary',
-            'saving' => 'Put aside',
+            'saving' => 'Birthday money',
+            'withdraw' => 'Concert tickets',
             _ => 'Groceries',
           },
         ),
+        if (_suggestions[_kind] case final List<String> labels)
+          Wrap(
+            spacing: Spacing.sm,
+            runSpacing: Spacing.sm,
+            children: [
+              for (final l in labels)
+                AppChip(
+                  l,
+                  selected: _label.text.trim() == l,
+                  onPressed: () => setState(() => _label.text = _label.text.trim() == l ? '' : l),
+                ),
+            ],
+          ),
         DateField(label: 'Date', value: _date, onChanged: (d) => setState(() => _date = d)),
-        if (_error.isNotEmpty) T(_error, color: context.colors.danger),
-        AppButton('Save', onPressed: _save),
+        if (_kind == 'saving')
+          Segmented<bool>(
+            value: _fromWallet,
+            onChanged: (v) => setState(() => _fromWallet = v),
+            options: const {true: 'From my wallet', false: 'New money'},
+          ),
+        if (_error.isNotEmpty) T(_error, color: c.danger),
+        AppButton(switch (_kind) {
+          _ when !isNew => 'Save',
+          'income' => 'Save income',
+          _ => 'Save expense',
+        }, onPressed: _save),
         if (widget.onDelete != null) AppButton('Delete', kind: ButtonKind.danger, onPressed: widget.onDelete),
+        if (widget.onJar != null)
+          AppButton(
+            'Putting money aside? Use the savings jar',
+            icon: Icons.savings_outlined,
+            kind: ButtonKind.plain,
+            small: true,
+            wrap: true,
+            onPressed: widget.onJar,
+          ),
       ],
+    );
+  }
+}
+
+/// One of the two big choices at the top of a new transaction: money out or money in.
+class _KindTile extends StatelessWidget {
+  const _KindTile({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.tint,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color tint;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final radius = BorderRadius.circular(Radii.md);
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        decoration: BoxDecoration(
+          color: selected ? tint.withValues(alpha: 0.14) : c.surfaceAlt,
+          borderRadius: radius,
+          border: Border.all(color: selected ? tint : c.border, width: selected ? 1.5 : 0.5),
+        ),
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            borderRadius: radius,
+            onTap: () {
+              if (selected) return;
+              tick();
+              onTap();
+            },
+            child: Padding(
+              padding: const EdgeInsets.all(Spacing.md),
+              child: Row(
+                spacing: Spacing.sm,
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: selected ? tint : tint.withValues(alpha: 0.14),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(icon, size: 17, color: selected ? c.surface : tint),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        T(title, variant: TextVariant.label, maxLines: 1),
+                        T(subtitle, variant: TextVariant.small, dim: true, maxLines: 1),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

@@ -53,6 +53,8 @@ void main() {
   setUp(() async {
     sqfliteFfiInit();
     appDb = await AppDb.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
+    // Past the Watch tab's first-time questions, showing everything; the setup has tests of its own.
+    await appDb.setSetting('watch_prefs', {'setUp': true});
   });
 
   tearDown(() => appDb.raw.close());
@@ -112,7 +114,7 @@ void main() {
 
   testWidgets('typing searches by itself, once the typing pauses', (tester) async {
     final seen = fakeAnilist(
-      (v) => anilistPage([anime(1, title: v['search'] == null ? 'Trending' : 'Death Note')], more: false),
+      (v) => anilistPage([anime(1, title: v['search'] == null ? 'Frieren' : 'Death Note')], more: false),
     );
     await start(tester);
     await tapText(tester, 'Anime');
@@ -134,7 +136,7 @@ void main() {
 
     await tapText(tester, 'Clear search');
     expect(seen.last.containsKey('search'), isFalse);
-    expect(find.text('Trending'), findsOneWidget);
+    expect(find.text('Frieren'), findsOneWidget);
   });
 
   testWidgets('movies and series sit together under Shows', (tester) async {
@@ -189,6 +191,9 @@ void main() {
     }
     // Put the file back to how that version of the app left it: no later columns, and its version number.
     await db.raw.execute('ALTER TABLE notes DROP COLUMN sketch');
+    await db.raw.execute('ALTER TABLE transactions DROP COLUMN from_wallet');
+    await db.raw.execute('ALTER TABLE watch_items DROP COLUMN genres');
+    await db.raw.execute('DROP TABLE reading');
     await db.raw.execute('PRAGMA user_version = 3');
     await db.raw.close();
 

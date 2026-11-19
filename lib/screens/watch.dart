@@ -8,9 +8,13 @@ import '../date.dart';
 import '../db.dart';
 import '../football.dart';
 import '../football_pickers.dart';
+import '../genre_picker.dart';
+import '../genres.dart';
 import '../theme.dart';
 import '../ui.dart';
 import '../watch_api.dart';
+import '../watch_prefs.dart';
+import 'reading.dart';
 import 'settings.dart';
 
 const _kindLabel = {'anime': 'Anime', 'movie': 'Movie', 'series': 'Series', 'match': 'Football'};
@@ -19,6 +23,7 @@ const _kindIcon = {
   'movie': Icons.movie_outlined,
   'series': Icons.tv,
   'match': Icons.sports_soccer,
+  'read': Icons.menu_book_outlined,
 };
 
 final _ratingPart = RegExp(r'^(IMDb|TMDB|AniList) ');
@@ -31,17 +36,24 @@ class WatchScreen extends StatefulWidget {
 }
 
 class _WatchScreenState extends State<WatchScreen> with Live {
-  /// 'mine', 'shows' (movies and series), 'anime' or 'match'.
+  /// 'mine', 'shows' (movies and series), 'anime', 'read' (manga) or 'match'.
   String _tab = 'mine';
 
   /// Which half of Shows is open: 'movie' or 'series'.
   String _showKind = 'movie';
   List<Rec> _items = [];
 
+  /// The genre each list is filtered by: 'mine', 'movie', 'series' or 'anime' → genre; absent for all.
+  final _genres = <String, String>{};
+
+  void _setGenre(String list, String? genre) =>
+      setState(() => genre == null ? _genres.remove(list) : _genres[list] = genre);
+
   @override
   void initState() {
     super.initState();
     _refreshStale();
+    _fillGenres();
   }
 
   @override
@@ -90,6 +102,36 @@ class _WatchScreenState extends State<WatchScreen> with Live {
       }
     }
     if (reached) await appDb.setSetting('watch_refreshed', today);
+  }
+
+  /// Titles saved before genres were kept get theirs looked up, a few a day, so the genre filter and the
+  /// suggestions know about them too.
+  Future<void> _fillGenres() async {
+    final today = todayKey();
+    if (appDb.setting('genres_filled', '') == today) return;
+    final tmdbKey = appDb.setting('tmdb_key', '');
+    var changed = false, reached = false;
+    for (final table in ['watch_items', 'reading']) {
+      final rows = await appDb.query(
+        "SELECT id, ext_id FROM $table WHERE genres IS NULL AND ext_id IS NOT NULL AND ext_id NOT LIKE 'fotmob:%' "
+        'LIMIT 25',
+      );
+      for (final row in rows) {
+        try {
+          final genres = await fetchGenres(row['ext_id'] as String, tmdbKey);
+          if (genres == null) continue;
+          reached = true;
+          if (genres.isEmpty) continue;
+          // Straight to the database, then one redraw at the end.
+          await appDb.raw.execute('UPDATE $table SET genres = ? WHERE id = ?', [joinGenres(genres), row['id']]);
+          changed = true;
+        } catch (_) {
+          // Offline: try again another day.
+        }
+      }
+    }
+    if (reached) await appDb.setSetting('genres_filled', today);
+    if (changed) appDb.refresh();
   }
 
   /// Put a title on the calendar: on its release day if that is ahead, otherwise tonight.
@@ -150,18 +192,21 @@ class _WatchScreenState extends State<WatchScreen> with Live {
       note = next?.note ?? 'No new episode announced';
     }
     final detail = [note, f.rating].where((s) => s.isNotEmpty).join(' · ');
+    final genres = joinGenres(f.genres);
     // A title typed in by hand earlier becomes this one, rather than sitting beside it as a duplicate.
     final typed = _items.where((i) => i['ext_id'] == null && _sameTitle(i, f.kind, f.title)).firstOrNull;
     if (typed != null) {
       await appDb.run(
-        'UPDATE OR IGNORE watch_items SET title = ?, release_date = ?, detail = ?, ext_id = ?, poster = ? WHERE id = ?',
-        [f.title, date, detail, f.extId, f.poster, typed['id']],
+        'UPDATE OR IGNORE watch_items SET title = ?, release_date = ?, detail = ?, ext_id = ?, poster = ?, genres = ? '
+        'WHERE id = ?',
+        [f.title, date, detail, f.extId, f.poster, genres, typed['id']],
       );
       return;
     }
     await appDb.insert(
-      'INSERT OR IGNORE INTO watch_items (kind, title, release_date, detail, ext_id, poster) VALUES (?, ?, ?, ?, ?, ?)',
-      [f.kind, f.title, date, detail, f.extId, f.poster],
+      'INSERT OR IGNORE INTO watch_items (kind, title, release_date, detail, ext_id, poster, genres) '
+      'VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [f.kind, f.title, date, detail, f.extId, f.poster, genres],
     );
   }
 
@@ -200,10 +245,24 @@ class _WatchScreenState extends State<WatchScreen> with Live {
     final tmdbKey = appDb.setting('tmdb_key', '');
     final omdbKey = appDb.setting('omdb_key', '');
     final football = footballPrefs();
-    // Someone who does not follow football never sees the tab; Settings can bring it back.
-    final tab = football.off && _tab == 'match' ? 'mine' : _tab;
+    final prefs = watchPrefs();
+    // Only what the person said they watch has a tab; Settings → Watch changes it.
+    final showKinds = [
+      for (final k in const ['movie', 'series'])
+        if (prefs.shows(k)) k,
+    ];
+    final tabs = {
+      'mine': 'My list',
+      if (showKinds.isNotEmpty)
+        'shows': showKinds.length == 2 ? 'Shows' : (showKinds.single == 'movie' ? 'Movies' : 'Series'),
+      if (prefs.shows('anime')) 'anime': 'Anime',
+      if (prefs.shows('manga')) 'read': 'Manga',
+      if (prefs.shows('match')) 'match': 'Football',
+    };
+    final tab = tabs.containsKey(_tab) ? _tab : 'mine';
     final mine = tab == 'mine';
-    final kind = tab == 'shows' ? _showKind : tab;
+    final showKind = showKinds.contains(_showKind) || showKinds.isEmpty ? _showKind : showKinds.first;
+    final kind = tab == 'shows' ? showKind : tab;
     final today = todayKey();
     // One card per title. A title with any entry still ahead goes under "Coming up", led by that entry;
     // otherwise it goes under "Out now or undated". It is never in both.
@@ -211,76 +270,102 @@ class _WatchScreenState extends State<WatchScreen> with Live {
     for (final item in _items) {
       (byTitle[_listKey(item)] ??= []).add(item);
     }
-    final titles = [
+    final allTitles = [
       for (final copies in byTitle.values)
         [...copies.where((i) => _isUpcoming(i, today)), ...copies.where((i) => !_isUpcoming(i, today))],
     ];
+    // The genre filter on My list offers only genres something saved has.
+    final myGenres = {for (final item in _items) ...parseGenres(item['genres'])}.toList()..sort();
+    final myGenre = myGenres.contains(_genres['mine']) ? _genres['mine'] : null;
+    final titles = myGenre == null
+        ? allTitles
+        : allTitles.where((t) => t.any((i) => parseGenres(i['genres']).contains(myGenre))).toList();
     final upcoming = titles.where((t) => _isUpcoming(t.first, today)).toList();
     final rest = titles.where((t) => !_isUpcoming(t.first, today)).toList();
 
     return Screen(
       title: 'Watchlist',
       // The tabs below already say what is here; the subtitle only counts what you saved.
-      subtitle: titles.isEmpty ? null : '${titles.length} saved · ${upcoming.length} coming up',
+      subtitle: !prefs.setUp || allTitles.isEmpty || tab == 'read'
+          ? null
+          : '${allTitles.length} saved · ${upcoming.length} coming up',
+      fabLabel: tab == 'read' ? 'Add' : null,
+      onFab: tab == 'read' ? () => openReadingEdit(context) : null,
       // Once a key is saved nothing here asks for one again; both stay editable in Settings.
       actions: [
-        if (tmdbKey.isEmpty && omdbKey.isEmpty)
+        if (prefs.setUp && showKinds.isNotEmpty && tmdbKey.isEmpty && omdbKey.isEmpty)
           HeaderIcon(Icons.key_outlined, label: 'Movie and series keys', onPressed: _openKeys),
       ],
       children: [
-        Segmented<String>(
-          value: tab,
-          onChanged: (v) => setState(() => _tab = v),
-          options: {'mine': 'My list', 'shows': 'Shows', 'anime': 'Anime', if (!football.off) 'match': 'Football'},
-        ),
-        if (mine) ...[
-          if (ready && _items.isEmpty)
-            const Empty(
-              icon: Icons.bookmark_add_outlined,
-              title: 'Your list is empty',
-              hint: 'Open Shows, Anime or Football to see what is on and save what you want to watch.',
-            ),
-          if (upcoming.isNotEmpty)
-            Section(title: 'Coming up', children: [for (final copies in upcoming) _itemCard(copies)]),
-          if (rest.isNotEmpty)
-            Section(
-              title: upcoming.isEmpty ? 'Saved' : 'Out now or undated',
-              children: [for (final copies in rest) _itemCard(copies)],
-            ),
-        ] else if (tab == 'match')
-          _FootballView(
-            prefs: football,
-            isSaved: (f) => _savedAs(f) != null,
-            onSave: _saveFound,
-            onUnsave: _unsaveFound,
-          )
-        else if (tab == 'shows' && tmdbKey.isEmpty)
-          Empty(
-            icon: Icons.key_outlined,
-            title: omdbKey.isEmpty ? 'A free key is needed' : 'A TMDB key is needed',
-            hint: omdbKey.isEmpty
-                ? 'Hot movies and series come from TMDB. The key is free and you paste it in once. '
-                      'An OMDb key is optional and adds IMDb ratings.'
-                : 'Your OMDb key is saved, but the lists themselves come from TMDB. Its key is free too.',
-            action: AppButton(omdbKey.isEmpty ? 'Add a key' : 'Add TMDB key', onPressed: _openKeys),
-          )
+        if (!prefs.setUp)
+          const WatchSetup()
         else ...[
-          if (tab == 'shows')
-            Segmented<String>(
-              value: _showKind,
-              onChanged: (v) => setState(() => _showKind = v),
-              options: const {'movie': 'Movies', 'series': 'Series'},
+          if (tabs.length > 1) Segmented<String>(value: tab, onChanged: (v) => setState(() => _tab = v), options: tabs),
+          if (mine) ...[
+            if (myGenres.isNotEmpty)
+              Wrap(
+                children: [GenreChip(options: myGenres, value: myGenre, onChanged: (g) => _setGenre('mine', g))],
+              ),
+            if (ready && _items.isEmpty)
+              Empty(
+                icon: Icons.bookmark_add_outlined,
+                title: 'Your list is empty',
+                hint: tabs.length > 1
+                    ? 'Open ${tabs.values.skip(1).join(', ')} to see what is on and save what you want to watch.'
+                    : 'Turn on what you watch in Settings, under Watch.',
+              ),
+            if (_items.isNotEmpty && titles.isEmpty)
+              Empty(
+                icon: Icons.filter_alt_off_outlined,
+                title: 'Nothing saved in $myGenre',
+                action: AppButton('Show all genres', kind: ButtonKind.soft, onPressed: () => _setGenre('mine', null)),
+              ),
+            if (upcoming.isNotEmpty)
+              Section(title: 'Coming up', children: [for (final copies in upcoming) _itemCard(copies)]),
+            if (rest.isNotEmpty)
+              Section(
+                title: upcoming.isEmpty ? 'Saved' : 'Out now or undated',
+                children: [for (final copies in rest) _itemCard(copies)],
+              ),
+          ] else if (tab == 'read')
+            const ReadingView()
+          else if (tab == 'match')
+            _FootballView(
+              prefs: football,
+              isSaved: (f) => _savedAs(f) != null,
+              onSave: _saveFound,
+              onUnsave: _unsaveFound,
+            )
+          else if (tab == 'shows' && tmdbKey.isEmpty)
+            Empty(
+              icon: Icons.key_outlined,
+              title: omdbKey.isEmpty ? 'A free key is needed' : 'A TMDB key is needed',
+              hint: omdbKey.isEmpty
+                  ? 'Hot movies and series come from TMDB. The key is free and you paste it in once. '
+                        'An OMDb key is optional and adds IMDb ratings.'
+                  : 'Your OMDb key is saved, but the lists themselves come from TMDB. Its key is free too.',
+              action: AppButton(omdbKey.isEmpty ? 'Add a key' : 'Add TMDB key', onPressed: _openKeys),
+            )
+          else ...[
+            if (tab == 'shows' && showKinds.length == 2)
+              Segmented<String>(
+                value: showKind,
+                onChanged: (v) => setState(() => _showKind = v),
+                options: const {'movie': 'Movies', 'series': 'Series'},
+              ),
+            _Browser(
+              key: ValueKey(kind),
+              kind: kind,
+              tmdbKey: tmdbKey,
+              omdbKey: omdbKey,
+              genre: _genres[kind],
+              onGenre: (g) => _setGenre(kind, g),
+              isSaved: (f) => _savedAs(f) != null,
+              onSave: _saveFound,
+              onUnsave: _unsaveFound,
+              onFixKeys: _openKeys,
             ),
-          _Browser(
-            key: ValueKey(kind),
-            kind: kind,
-            tmdbKey: tmdbKey,
-            omdbKey: omdbKey,
-            isSaved: (f) => _savedAs(f) != null,
-            onSave: _saveFound,
-            onUnsave: _unsaveFound,
-            onFixKeys: _openKeys,
-          ),
+          ],
         ],
       ],
     );
@@ -310,7 +395,7 @@ class _WatchScreenState extends State<WatchScreen> with Live {
           crossAxisAlignment: CrossAxisAlignment.start,
           spacing: Spacing.md,
           children: [
-            _Poster(url: item['poster'] as String?, kind: kind),
+            WatchPoster(url: item['poster'] as String?, kind: kind),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -355,8 +440,8 @@ class _WatchScreenState extends State<WatchScreen> with Live {
 }
 
 /// A small poster, or a tinted placeholder when there is none or it cannot be loaded.
-class _Poster extends StatelessWidget {
-  const _Poster({required this.url, required this.kind});
+class WatchPoster extends StatelessWidget {
+  const WatchPoster({super.key, required this.url, required this.kind});
 
   final String? url;
   final String kind;
@@ -407,6 +492,8 @@ class _Browser extends StatefulWidget {
     required this.kind,
     required this.tmdbKey,
     required this.omdbKey,
+    required this.genre,
+    required this.onGenre,
     required this.isSaved,
     required this.onSave,
     required this.onUnsave,
@@ -416,6 +503,10 @@ class _Browser extends StatefulWidget {
   final String kind;
   final String tmdbKey;
   final String omdbKey;
+
+  /// The genre to keep to; null for all.
+  final String? genre;
+  final ValueChanged<String?> onGenre;
 
   /// Whether a found title is on the list already.
   final bool Function(Found) isSaved;
@@ -430,7 +521,12 @@ class _Browser extends StatefulWidget {
 class _BrowserState extends State<_Browser> {
   final _text = TextEditingController();
   String _search = '';
+
+  /// 'hot' (trending), 'upcoming' (movies and series only) or 'foryou' (suggestions from what was saved).
   String _mode = 'hot';
+
+  /// In "For you", true when nothing saved says what the person likes yet.
+  bool _noTaste = false;
 
   /// Runs the search a moment after the last keystroke, so typing a word asks once rather than per letter.
   Timer? _typing;
@@ -470,7 +566,7 @@ class _BrowserState extends State<_Browser> {
   @override
   void didUpdateWidget(_Browser old) {
     super.didUpdateWidget(old);
-    if (old.tmdbKey != widget.tmdbKey || old.omdbKey != widget.omdbKey) _fetch();
+    if (old.tmdbKey != widget.tmdbKey || old.omdbKey != widget.omdbKey || old.genre != widget.genre) _fetch();
   }
 
   @override
@@ -497,11 +593,21 @@ class _BrowserState extends State<_Browser> {
     setState(() {
       _loading = true;
       _error = '';
+      _noTaste = false;
       if (!next) _results = [];
     });
     try {
+      final taste = _mode == 'foryou' && _search.isEmpty ? await loadTaste() : null;
+      if (taste != null && taste.isEmpty) {
+        if (!mounted || request != _request) return;
+        return setState(() {
+          _loading = false;
+          _noTaste = true;
+          _more = false;
+        });
+      }
       final found = switch (widget.kind) {
-        'anime' => await fetchAnime(_search, page: page),
+        'anime' => await fetchAnime(_search, page: page, genre: widget.genre, taste: taste),
         _ => await fetchTitles(
           widget.kind,
           _mode,
@@ -509,6 +615,8 @@ class _BrowserState extends State<_Browser> {
           tmdbKey: widget.tmdbKey,
           omdbKey: widget.omdbKey,
           page: page,
+          genre: widget.genre,
+          taste: taste,
         ),
       };
       if (!mounted || request != _request) return;
@@ -575,10 +683,22 @@ class _BrowserState extends State<_Browser> {
     final typed = _text.text.trim();
     final results = _results;
     final chips = [
-      if (kind != 'anime' && typed.isEmpty) ...[
-        AppChip('Hot this week', selected: _mode == 'hot', onPressed: () => _setMode('hot')),
-        AppChip('Coming soon', selected: _mode == 'upcoming', onPressed: () => _setMode('upcoming')),
+      if (typed.isEmpty) ...[
+        AppChip(
+          kind == 'anime' ? 'Trending' : 'Hot this week',
+          selected: _mode == 'hot',
+          onPressed: () => _setMode('hot'),
+        ),
+        if (kind != 'anime')
+          AppChip('Coming soon', selected: _mode == 'upcoming', onPressed: () => _setMode('upcoming')),
+        AppChip(
+          'For you',
+          icon: Icons.auto_awesome_outlined,
+          selected: _mode == 'foryou',
+          onPressed: () => _setMode('foryou'),
+        ),
       ],
+      GenreChip(options: genresFor(kind), value: widget.genre, onChanged: widget.onGenre),
       if (typed.isNotEmpty)
         AppChip(
           'Clear search',
@@ -608,11 +728,22 @@ class _BrowserState extends State<_Browser> {
           },
         ),
         if (chips.isNotEmpty) Wrap(spacing: Spacing.sm, runSpacing: Spacing.sm, children: chips),
-        if (!_loading && _error.isEmpty && results.isEmpty)
-          const Empty(
+        if (_noTaste)
+          Empty(
+            icon: Icons.auto_awesome_outlined,
+            title: 'Save a few you like',
+            hint:
+                'Suggestions come from what is on your list and reading list. Save some $plural you enjoyed and '
+                'they show up here.',
+            action: AppButton('See what is hot', kind: ButtonKind.soft, onPressed: () => _setMode('hot')),
+          )
+        else if (!_loading && _error.isEmpty && results.isEmpty)
+          Empty(
             icon: Icons.search_off,
             title: 'Nothing found',
-            hint: 'Check the spelling, or try the original title.',
+            hint: widget.genre != null && typed.isEmpty
+                ? 'Nothing in ${widget.genre} here. Try another genre.'
+                : 'Check the spelling, or try the original title.',
           ),
         for (final f in results)
           _FoundCard(
@@ -687,7 +818,7 @@ class _FoundCard extends StatelessWidget {
         Row(
           spacing: Spacing.md,
           children: [
-            _Poster(url: f.poster, kind: f.kind),
+            WatchPoster(url: f.poster, kind: f.kind),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -706,6 +837,7 @@ class _FoundCard extends StatelessWidget {
                     maxLines: 2,
                   ),
                   if (f.rating.isNotEmpty) T('★ ${f.rating}', variant: TextVariant.label, color: c.warn),
+                  if (f.reason.isNotEmpty) T(f.reason, variant: TextVariant.small, color: c.accent, maxLines: 2),
                 ],
               ),
             ),

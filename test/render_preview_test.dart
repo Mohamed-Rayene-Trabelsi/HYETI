@@ -175,6 +175,8 @@ void main() {
   setUp(() async {
     sqfliteFfiInit();
     appDb = await AppDb.open(factory: databaseFactoryFfi, path: inMemoryDatabasePath);
+    // Past the Watch tab's first-time questions, showing everything; the setup has tests of its own.
+    await appDb.setSetting('watch_prefs', {'setUp': true});
   });
 
   tearDown(() => appDb.raw.close());
@@ -245,6 +247,15 @@ void main() {
     await snap(tester, 'wallet_add');
     await tester.tap(find.text('Close'));
     await settle(tester);
+    await tester.tap(find.text('Drop in').hitTestable());
+    await settle(tester);
+    await tester.tap(find.text('+\$10').hitTestable());
+    await settle(tester);
+    await snap(tester, 'jar_source');
+    await tester.tap(find.text('Cancel'));
+    await settle(tester);
+    await tester.tap(find.text('Close'));
+    await settle(tester);
     await openTab(tester, 'Body');
 
     await tester.tap(find.text('Bench press').hitTestable().first);
@@ -257,6 +268,25 @@ void main() {
     await tester.tap(find.text('Shows'));
     await settle(tester);
     await snap(tester, 'watch_shows');
+    await tester.runAsync(() async {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await appDb.run(
+        'INSERT INTO reading (title, kind, status, chapter, total, link, genres, updated_at) VALUES '
+        "('Solo Leveling', 'manhwa', 'reading', 142, 200, 'https://example.com', 'Action,Fantasy', ?), "
+        "('Vinland Saga', 'manga', 'reading', 120.5, NULL, '', 'Action,Drama', ?), "
+        "('Omniscient Reader', 'manhwa', 'completed', 250, 250, '', 'Fantasy', ?), "
+        "('Lookism', 'manhwa', 'plan', 0, NULL, '', 'Drama', ?)",
+        [now, now - 1, now - 2, now - 3],
+      );
+    });
+    await tester.tap(find.text('Manga').hitTestable());
+    await settle(tester);
+    await snap(tester, 'watch_manga');
+    await tester.tap(find.text('Import / export').hitTestable());
+    await settle(tester);
+    await snap(tester, 'manga_import');
+    await tester.tap(find.text('Close'));
+    await settle(tester);
     await tester.tap(find.text('Football').hitTestable());
     await settle(tester);
     await snap(tester, 'football_welcome');
@@ -284,6 +314,22 @@ void main() {
     await tester.tap(find.byIcon(Icons.settings_outlined).hitTestable());
     await settle(tester);
     await snap(tester, 'settings');
+    await tester.tap(find.text('Watch').hitTestable().last);
+    await settle(tester);
+    await snap(tester, 'settings_watch');
+    await tester.tap(find.byIcon(Icons.arrow_back).hitTestable());
+    await settle(tester);
+    // The Watch tab's first-time questions.
+    await tester.runAsync(() => appDb.setSetting('watch_prefs', {'setUp': false}));
+    await settle(tester);
+    await tester.tap(find.byIcon(Icons.arrow_back).hitTestable());
+    await settle(tester);
+    await openTab(tester, 'Watch');
+    await snap(tester, 'watch_setup');
+    await tester.runAsync(() => appDb.setSetting('watch_prefs', {'setUp': true}));
+    await settle(tester);
+    await tester.tap(find.byIcon(Icons.settings_outlined).hitTestable());
+    await settle(tester);
     await tester.tap(find.text('Appearance'));
     await settle(tester);
 

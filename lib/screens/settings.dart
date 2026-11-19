@@ -9,6 +9,7 @@ import '../pickers.dart';
 import '../theme.dart';
 import '../ui.dart';
 import '../update.dart';
+import '../watch_prefs.dart';
 import 'calendar.dart';
 
 /// The settings menu: one row per area, each showing what it is set to now and opening its own page.
@@ -37,87 +38,97 @@ class SettingsScreen extends StatelessWidget {
               : (palettes.where((p) => p.id == paletteId).firstOrNull?.name ?? 'Indigo');
           final country = appDb.setting('country', '');
           final off = offWeekdays();
-          final football = footballPrefs();
-          final clubs = football.clubs.length;
+          final watch = watchPrefs();
+          final watching = [
+            for (final MapEntry(key: id, value: (label, _, _)) in watchKinds.entries)
+              if (watch.shows(id)) label,
+          ];
 
           return Screen(
             title: 'Settings',
             onBack: () => Navigator.of(context).pop(),
             children: [
-              _MenuGroup(
-                children: [
-                  _MenuRow(
-                    icon: Icons.palette_outlined,
-                    tint: c.accent,
-                    label: 'Appearance',
-                    value: '$theme · $palette',
-                    onTap: () => _open(context, 'Appearance', (_) => const _AppearancePage()),
-                  ),
-                  _MenuRow(
-                    icon: Icons.public,
-                    tint: const Color(0xFF4FC3F7),
-                    label: 'Country and units',
-                    value: [
-                      if (country.isNotEmpty) country,
-                      appDb.setting('currency', r'$'),
-                      appDb.setting('weight_unit', 'kg'),
-                    ].join(' · '),
-                    onTap: () => _open(context, 'Country and units', (_) => const _CountryPage()),
-                  ),
-                  _MenuRow(
-                    icon: Icons.beach_access_outlined,
-                    tint: const Color(0xFFE6A23C),
-                    label: 'Days off',
-                    value: off.isEmpty ? 'None every week' : off.map((d) => weekdays[d]).join(', '),
-                    onTap: () => _open(context, 'Days off', (_) => const _DaysOff()),
-                  ),
-                ],
+              const T(
+                'Tap a row to change it. What it is set to now shows under its name.',
+                variant: TextVariant.small,
+                dim: true,
               ),
-              _MenuGroup(
+              Section(
+                title: 'Look and region',
                 children: [
-                  _MenuRow(
-                    icon: Icons.sports_soccer,
-                    tint: const Color(0xFF3DBE7F),
-                    label: 'Football',
-                    value: football.off
-                        ? 'Off'
-                        : [
-                            ?football.nation?.name,
-                            if (clubs > 0) '$clubs ${clubs == 1 ? 'club' : 'clubs'}',
-                          ].join(' · '),
-                    onTap: () => _open(
-                      context,
-                      'Football',
-                      (_) => ListenableBuilder(
-                        listenable: appDb,
-                        builder: (_, _) => _FootballSettings(prefs: footballPrefs()),
+                  _MenuGroup(
+                    children: [
+                      _MenuRow(
+                        icon: Icons.palette_outlined,
+                        tint: c.accent,
+                        label: 'Appearance',
+                        value: '$theme · $palette',
+                        onTap: () => _open(context, 'Appearance', (_) => const _AppearancePage()),
                       ),
-                    ),
-                  ),
-                  _MenuRow(
-                    icon: Icons.movie_outlined,
-                    tint: const Color(0xFFFF6FAE),
-                    label: 'Movie and series data',
-                    value: appDb.setting('tmdb_key', '').isNotEmpty ? 'Key saved' : 'Not set up',
-                    onTap: () => _open(context, 'Movie and series data', (_) => const KeysForm()),
+                      _MenuRow(
+                        icon: Icons.public,
+                        tint: const Color(0xFF4FC3F7),
+                        label: 'Country and units',
+                        value: [
+                          if (country.isNotEmpty) country,
+                          appDb.setting('currency', r'$'),
+                          appDb.setting('weight_unit', 'kg'),
+                        ].join(' · '),
+                        onTap: () => _open(context, 'Country and units', (_) => const _CountryPage()),
+                      ),
+                      _MenuRow(
+                        icon: Icons.beach_access_outlined,
+                        tint: const Color(0xFFE6A23C),
+                        label: 'Days off',
+                        value: off.isEmpty ? 'None every week' : off.map((d) => weekdays[d]).join(', '),
+                        onTap: () => _open(context, 'Days off', (_) => const _DaysOff()),
+                      ),
+                    ],
                   ),
                 ],
               ),
-              _MenuGroup(
+              Section(
+                title: 'Tabs',
                 children: [
-                  _MenuRow(
-                    icon: Icons.info_outline,
-                    tint: c.textDim,
-                    label: 'About',
-                    value: 'Version $appVersion',
-                    onTap: () => _open(context, 'About', (_) => const UpdateCheck()),
+                  _MenuGroup(
+                    children: [
+                      _MenuRow(
+                        icon: Icons.live_tv_outlined,
+                        tint: const Color(0xFFFF6FAE),
+                        label: 'Watch',
+                        value: !watch.setUp
+                            ? 'Not set up yet'
+                            : watching.isEmpty
+                            ? 'Nothing chosen'
+                            : watching.join(', '),
+                        onTap: () =>
+                            Navigator.of(context)
+                                .push(MaterialPageRoute<void>(builder: (_) => const _WatchSettingsPage())),
+                      ),
+                    ],
                   ),
-                  _MenuRow(
-                    icon: Icons.delete_outline,
-                    tint: c.danger,
-                    label: 'Erase all data',
-                    labelColor: c.danger,
-                    onTap: () => _open(context, 'Erase all data', (_) => const _ErasePage()),
+                ],
+              ),
+              Section(
+                title: 'App',
+                children: [
+                  _MenuGroup(
+                    children: [
+                      _MenuRow(
+                        icon: Icons.info_outline,
+                        tint: c.textDim,
+                        label: 'About',
+                        value: 'Version $appVersion',
+                        onTap: () => _open(context, 'About', (_) => const UpdateCheck()),
+                      ),
+                      _MenuRow(
+                        icon: Icons.delete_outline,
+                        tint: c.danger,
+                        label: 'Erase all data',
+                        labelColor: c.danger,
+                        onTap: () => _open(context, 'Erase all data', (_) => const _ErasePage()),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -724,53 +735,171 @@ class _KeysFormState extends State<KeysForm> {
   }
 }
 
-/// What football is followed. The Football tab itself has no filters; this is where it is changed.
-class _FootballSettings extends StatelessWidget {
-  const _FootballSettings({required this.prefs});
-
-  final FootballPrefs prefs;
+/// Everything about the Watch tab on one page, in plain steps: what is shown, liked genres, the movie keys and
+/// football. Each change is saved at once.
+class _WatchSettingsPage extends StatelessWidget {
+  const _WatchSettingsPage();
 
   @override
   Widget build(BuildContext context) {
-    final leagues = [for (final id in prefs.leagues) ?topLeagues[id]];
-    return FormColumn(
-      children: [
-        Segmented<bool>(
-          value: !prefs.off,
-          onChanged: (on) => saveFootballPrefs(prefs.copyWith(setUp: true, off: !on)),
-          options: const {true: 'I follow football', false: "I don't"},
-        ),
-        if (!prefs.off) ...[
-          Column(
+    return Scaffold(
+      body: ListenableBuilder(
+        listenable: appDb,
+        builder: (context, _) {
+          final c = context.colors;
+          final prefs = watchPrefs();
+          final football = footballPrefs();
+          final tmdb = appDb.setting('tmdb_key', '').isNotEmpty;
+          final omdb = appDb.setting('omdb_key', '').isNotEmpty;
+          final leagues = [for (final id in football.leagues) ?topLeagues[id]];
+          final moviesOn = prefs.shows('movie') || prefs.shows('series');
+
+          Widget status(bool ok, String good, String missing) => Row(
+            spacing: Spacing.sm,
             children: [
-              SettingRow(
-                label: 'National team',
-                value: prefs.nation?.name ?? '',
-                onTap: () => openFootballEdit(context, 'nation'),
+              Icon(ok ? Icons.check_circle : Icons.error_outline, size: 20, color: ok ? c.success : c.warn),
+              Expanded(child: T(ok ? good : missing, color: ok ? c.text : c.textDim)),
+            ],
+          );
+
+          return Screen(
+            title: 'Watch',
+            onBack: () => Navigator.of(context).pop(),
+            children: [
+              Section(
+                title: '1 · What you watch',
+                children: [
+                  AppCard(
+                    children: [
+                      const T(
+                        'Each one you pick gets its own tab in Watch. Turn one off and its tab is hidden; nothing '
+                        'you saved is lost.',
+                        variant: TextVariant.small,
+                        dim: true,
+                      ),
+                      WatchKindsPicker(
+                        selected: prefs.kinds,
+                        onChanged: (kinds) => saveWatchPrefs(setUp: true, kinds: kinds),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              SettingRow(
-                label: 'Clubs',
-                value: prefs.clubs.map((c) => c.name).join(', '),
-                divider: true,
-                onTap: () => openFootballEdit(context, 'clubs'),
+              Section(
+                title: '2 · Genres you enjoy',
+                children: [
+                  AppCard(
+                    children: [
+                      T(
+                        prefs.genres.isEmpty
+                            ? 'Pick a few and “For you” has something to go on before you save anything.'
+                            : '“For you” starts from these, then learns from what you save.',
+                        variant: TextVariant.small,
+                        dim: true,
+                      ),
+                      FavouriteGenresPicker(
+                        selected: prefs.genres,
+                        onChanged: (genres) => saveWatchPrefs(genres: genres),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-              SettingRow(
-                label: 'Leagues',
-                value: leagues.join(', '),
-                divider: true,
-                onTap: () => openFootballEdit(context, 'leagues'),
+              if (moviesOn)
+                Section(
+                  title: '3 · Movie and series data',
+                  children: [
+                    AppCard(
+                      spacing: Spacing.md,
+                      children: [
+                        status(
+                          tmdb,
+                          'TMDB key saved: lists and release dates work',
+                          'Movies and series need a free TMDB key',
+                        ),
+                        status(omdb, 'OMDb key saved: IMDb ratings show', 'IMDb ratings are off (optional OMDb key)'),
+                        AppButton(
+                          tmdb ? 'Change keys' : 'Add the free keys',
+                          icon: Icons.key_outlined,
+                          kind: tmdb ? ButtonKind.soft : ButtonKind.primary,
+                          onPressed: () => showSheet(
+                            context,
+                            title: 'Movie and series keys',
+                            builder: (sheet) => KeysForm(onSaved: () => Navigator.pop(sheet)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              if (prefs.shows('match'))
+                Section(
+                  title: '${moviesOn ? 4 : 3} · Football',
+                  children: [
+                    AppCard(
+                      children: [
+                        if (!football.setUp) ...[
+                          const T(
+                            'Tell it your country, your clubs and the leagues you follow, and their matches show up.',
+                            dim: true,
+                          ),
+                          AppButton('Set up football', onPressed: () => openFootballSetup(context)),
+                        ] else ...[
+                          SettingRow(
+                            label: 'National team',
+                            value: football.nation?.name ?? '',
+                            onTap: () => openFootballEdit(context, 'nation'),
+                          ),
+                          SettingRow(
+                            label: 'Clubs',
+                            value: football.clubs.map((c) => c.name).join(', '),
+                            divider: true,
+                            onTap: () => openFootballEdit(context, 'clubs'),
+                          ),
+                          SettingRow(
+                            label: 'Leagues',
+                            value: leagues.join(', '),
+                            divider: true,
+                            onTap: () => openFootballEdit(context, 'leagues'),
+                          ),
+                          const T(
+                            'Matches of your country and clubs go on your calendar as they come within two weeks. '
+                            'Only what you follow is downloaded.',
+                            variant: TextVariant.small,
+                            dim: true,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              Section(
+                title: 'Start over',
+                children: [
+                  AppCard(
+                    children: [
+                      if (prefs.setUp) ...[
+                        const T(
+                          'See the first-time questions again the next time you open Watch.',
+                          variant: TextVariant.small,
+                          dim: true,
+                        ),
+                        AppButton(
+                          'Ask me again',
+                          icon: Icons.restart_alt,
+                          kind: ButtonKind.soft,
+                          onPressed: () => saveWatchPrefs(setUp: false),
+                        ),
+                      ] else
+                        T('Watch will ask what you are into when you open it.', color: c.success),
+                    ],
+                  ),
+                ],
               ),
             ],
-          ),
-          const T(
-            'Matches of your country and clubs go on your calendar as they come within two weeks. '
-            'Only what you follow is downloaded.',
-            variant: TextVariant.small,
-            dim: true,
-          ),
-        ] else
-          const T('The Football tab is hidden from Watch.', variant: TextVariant.small, dim: true),
-      ],
+          );
+        },
+      ),
     );
   }
 }
