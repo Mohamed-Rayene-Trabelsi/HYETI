@@ -7,6 +7,7 @@ import 'date.dart';
 import 'db.dart';
 import 'theme.dart';
 import 'ui.dart';
+import 'update.dart' show onIOS;
 
 /// Coins are gold in every theme, like the sketch pens and calendar categories.
 const coinGold = Color(0xFFF2C94C);
@@ -212,41 +213,42 @@ Future<void> openJarInfo(BuildContext context) {
   return showSheet(
     context,
     title: 'How the jar works',
-    builder: (sheet) => const FormColumn(
+    builder: (sheet) => FormColumn(
       children: [
-        _InfoLine(
+        const _InfoLine(
           icon: Icons.flag_outlined,
           title: 'Set a goal',
           text: 'Give it a name and an amount, like a new bike. The jar is full when your savings reach it.',
         ),
-        _InfoLine(
+        const _InfoLine(
           icon: Icons.account_balance_wallet_outlined,
           title: 'Apart from your wallet',
           text:
               'Your wallet is the money you can spend. The jar is money you keep aside, and it is counted on its own.',
         ),
-        _InfoLine(
+        const _InfoLine(
           icon: Icons.savings_outlined,
           title: 'Drop money in',
           text:
               'Tap the jar or “Drop in” whenever you put money aside. You are asked where it comes from: moved out of '
               'your wallet, or new money (a gift, cash you found) that goes straight in and leaves your wallet as it is.',
         ),
-        _InfoLine(
+        const _InfoLine(
           icon: Icons.celebration_outlined,
           title: 'Watch it fill',
           text: 'The coins rise as you save, and the jar cheers when it is a quarter, half and three quarters full.',
         ),
-        _InfoLine(
+        const _InfoLine(
           icon: Icons.outbox_outlined,
           title: 'Take money out',
           text: 'Needed some of it back? “Take out” moves it into your wallet, and the jar drops.',
         ),
-        _InfoLine(
-          icon: Icons.widgets_outlined,
-          title: 'On your home screen',
-          text: 'Add the “Savings jar” widget to see the jar without opening the app, and drop money in from there.',
-        ),
+        if (!onIOS)
+          const _InfoLine(
+            icon: Icons.widgets_outlined,
+            title: 'On your home screen',
+            text: 'Add the “Savings jar” widget to see the jar without opening the app, and drop money in from there.',
+          ),
       ],
     ),
   );

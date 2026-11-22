@@ -1,4 +1,4 @@
-HYETI is a Flutter app for Android only. All data stays on the phone in SQLite; the only network calls are the Watch tab's lookups (AniList, TMDB, OMDb, and FotMob for football, which is unofficial and needs no key), the reading list's import from a link the person pastes, and the update check, which asks GitHub for the latest release.
+HYETI is a Flutter app for Android and iPhone. All data stays on the phone in SQLite; the only network calls are the Watch tab's lookups (AniList, TMDB, OMDb, and FotMob for football, which is unofficial and needs no key), the reading list's import from a link the person pastes, and the update check, which asks GitHub for the latest release.
 
 ## Flutter has changed — check before you trust memory
 
@@ -16,6 +16,8 @@ flutter build apk --release --target-platform android-arm64 # installable APK in
 ```
 
 To publish a build, raise `version` in `pubspec.yaml` and `appVersion` in `lib/update.dart` to match (a test fails if they differ), build, and attach `app-release.apk`, renamed `HYETI.apk`, to a new GitHub release tagged `v<version>`; the README's download link points at the latest release's `HYETI.apk`. Do not commit APKs to the repository (`release/` is ignored and is only a local staging folder). The APK is signed with the debug key of the computer that built it, so only builds from that computer install over the app already on the phone. On start the app compares `appVersion` with the latest release's tag and offers the download when the tag is newer, so the tag and the `HYETI.apk` file name must keep this form, and the repository must be public for the check to work.
+
+Publishing the release starts `.github/workflows/ios.yml`, which builds an unsigned `HYETI.ipa` on a macOS runner and attaches it with `altstore.json`, the SideStore/AltStore source (its URL is `releases/latest/download/altstore.json`). iPhones are offered a release only once `HYETI.ipa` is attached (`offersUpdate` in `lib/update.dart`), and the update button hands the IPA to SideStore or AltStore. The iOS app cannot be built or run on Windows; check iOS changes by running the workflow by hand.
 
 Run `flutter analyze` and `flutter test` before declaring any task done.
 
@@ -53,5 +55,8 @@ The toolchain (`flutter`, JDK 17, the Android SDK) is on the user PATH; where it
 - Football downloads only what the person follows or searches for (one request per team or league), never a whole day of every match. What is followed is changed in Settings → Watch, not with filters on the Football tab.
 - Do not add widgets that capture horizontal drags (swipe-to-dismiss, horizontal lists): sideways swipes belong to tab switching.
 - The formatter width is 120 (`analysis_options.yaml`). Run `dart format lib test` after edits.
-- Android only. Do not add iOS, web or desktop platform folders.
+- Android and iOS only. Do not add web or desktop platform folders.
+- The home-screen widgets and `lib/launch.dart` are Android only; iOS has none. Text that names Android, widgets or the APK must check `onIOS` (from `lib/update.dart`, based on `defaultTargetPlatform` so tests can set it).
+- iOS needs 15.5 or later (Google ML Kit); it is set in `ios/Podfile` and the Xcode project. A plugin that needs a new permission needs its `NS…UsageDescription` in `ios/Runner/Info.plist`, or iOS closes the app when it asks.
+- The iOS app icon (`ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-1024.png`) and launch mark are drawn from the Android vector icon; redraw them if that icon changes.
 - Widget tests use an in-memory database through `sqflite_common_ffi`; see `test/widget_test.dart` for the pattern.

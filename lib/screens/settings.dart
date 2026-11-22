@@ -402,7 +402,7 @@ class _UpdateCheckState extends State<UpdateCheck> {
     try {
       final release = await fetchLatestRelease();
       if (!mounted) return;
-      final newer = isNewer(release.version, appVersion);
+      final newer = offersUpdate(release);
       setState(() => _state = newer ? _Check.idle : _Check.latest);
       if (newer) showUpdateSheet(context, release);
     } catch (_) {

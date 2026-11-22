@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -11,14 +12,14 @@ import 'watch_api.dart' show httpClient;
 /// The version of this build. Must match `version` in pubspec.yaml; a test checks that it does.
 const appVersion = '1.4.0';
 
-/// The GitHub repository whose releases carry `HYETI.apk`.
+/// The GitHub repository whose releases carry `HYETI.apk` and `HYETI.ipa`.
 const _repo = 'Mohamed-Rayene-Trabelsi/HYETI';
 
 const _timeout = Duration(seconds: 15);
 
 /// A published build of the app.
 class Release {
-  const Release({required this.version, required this.notes, required this.url});
+  const Release({required this.version, required this.notes, required this.url, this.ipaUrl});
 
   /// Without the leading "v", e.g. "1.0.5".
   final String version;
@@ -28,7 +29,18 @@ class Release {
 
   /// Where `HYETI.apk` downloads from.
   final String url;
+
+  /// Where `HYETI.ipa` downloads from; null when the release has no iPhone build (yet: GitHub Actions adds it a few
+  /// minutes after the release is published).
+  final String? ipaUrl;
 }
+
+/// Whether this build runs on an iPhone or iPad. Uses [defaultTargetPlatform] so tests can pretend.
+bool get onIOS => defaultTargetPlatform == TargetPlatform.iOS;
+
+/// Whether [release] is something this phone should be offered: newer than [appVersion] and with a build for this
+/// platform.
+bool offersUpdate(Release release) => isNewer(release.version, appVersion) && (!onIOS || release.ipaUrl != null);
 
 /// The numbers of a version, e.g. "v1.0.5+6" → [1, 0, 5].
 List<int> _parts(String version) {
@@ -49,11 +61,13 @@ bool isNewer(String candidate, String current) {
 /// Reads GitHub's answer for a release.
 Release parseRelease(Map<String, dynamic> json) {
   final assets = (json['assets'] as List? ?? const []).cast<Map<String, dynamic>>();
-  final apk = assets.where((a) => a['name'] == 'HYETI.apk').firstOrNull?['browser_download_url'] as String?;
+  String? asset(String name) => assets.where((a) => a['name'] == name).firstOrNull?['browser_download_url'] as String?;
+  final apk = asset('HYETI.apk');
   return Release(
     version: (json['tag_name'] as String).replaceFirst(RegExp('^[vV]'), ''),
     notes: (json['body'] as String? ?? '').trim(),
     url: apk ?? 'https://github.com/$_repo/releases/latest/download/HYETI.apk',
+    ipaUrl: asset('HYETI.ipa'),
   );
 }
 
@@ -78,7 +92,7 @@ Future<void> promptForUpdate(BuildContext context) async {
   } catch (_) {
     return;
   }
-  if (!isNewer(release.version, appVersion)) return;
+  if (!offersUpdate(release)) return;
   if (appDb.setting('skipped_version', '') == release.version) return;
   if (context.mounted) showUpdateSheet(context, release);
 }
@@ -93,19 +107,25 @@ Future<void> showUpdateSheet(BuildContext context, Release release) {
         T('Version ${release.version} is out. This phone has $appVersion.'),
         if (release.notes.isNotEmpty) T(release.notes, dim: true, maxLines: 12),
         AppButton(
-          'Download update',
+          onIOS ? 'Update' : 'Download update',
           icon: Icons.download,
           onPressed: () async {
             Navigator.pop(sheet);
             try {
-              await launchUrl(Uri.parse(release.url), mode: LaunchMode.externalApplication);
+              if (onIOS) {
+                await _installOnIOS(release);
+              } else {
+                await launchUrl(Uri.parse(release.url), mode: LaunchMode.externalApplication);
+              }
             } catch (_) {
               // No browser to hand the link to; nothing useful to do about it here.
             }
           },
         ),
-        const T(
-          'Your browser downloads HYETI.apk. Open the file when it finishes to install it; your data stays.',
+        T(
+          onIOS
+              ? 'SideStore or AltStore installs the new version over this one; your data stays.'
+              : 'Your browser downloads HYETI.apk. Open the file when it finishes to install it; your data stays.',
           variant: TextVariant.small,
           dim: true,
         ),
@@ -130,4 +150,17 @@ Future<void> showUpdateSheet(BuildContext context, Release release) {
       ],
     ),
   );
+}
+
+/// The app store that installed HYETI on this iPhone (SideStore or AltStore) installs [release] over it. Without either,
+/// the release page opens in the browser.
+Future<void> _installOnIOS(Release release) async {
+  final ipa = release.ipaUrl;
+  if (ipa != null) {
+    for (final scheme in const ['sidestore', 'altstore']) {
+      final link = Uri(scheme: scheme, host: 'install', queryParameters: {'url': ipa});
+      if (await canLaunchUrl(link) && await launchUrl(link, mode: LaunchMode.externalApplication)) return;
+    }
+  }
+  await launchUrl(Uri.https('github.com', '/$_repo/releases/latest'), mode: LaunchMode.externalApplication);
 }

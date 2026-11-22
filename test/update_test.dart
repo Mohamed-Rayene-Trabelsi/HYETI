@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -14,7 +15,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'widget_test.dart' show settle, tapText;
 
 /// Makes GitHub answer with a release tagged [tag], and counts the times it was asked.
-List<Uri> fakeGitHub(String tag, {int status = 200}) {
+List<Uri> fakeGitHub(String tag, {int status = 200, bool ipa = false}) {
   final asked = <Uri>[];
   httpClient = MockClient((request) async {
     asked.add(request.url);
@@ -24,6 +25,7 @@ List<Uri> fakeGitHub(String tag, {int status = 200}) {
         'body': 'Faster calendar.',
         'assets': [
           {'name': 'HYETI.apk', 'browser_download_url': 'https://example.test/HYETI.apk'},
+          if (ipa) {'name': 'HYETI.ipa', 'browser_download_url': 'https://example.test/HYETI.ipa'},
         ],
       }),
       status,
@@ -77,6 +79,21 @@ void main() {
     final bare = parseRelease({'tag_name': 'v2.0.0', 'body': null, 'assets': <Object>[]});
     expect(bare.notes, '');
     expect(bare.url, 'https://github.com/Mohamed-Rayene-Trabelsi/HYETI/releases/latest/download/HYETI.apk');
+    expect(bare.ipaUrl, isNull);
+  });
+
+  test('an iPhone is offered only releases that carry HYETI.ipa', () async {
+    fakeGitHub('v9.9.9', ipa: true);
+    final both = await fetchLatestRelease();
+    expect(both.ipaUrl, 'https://example.test/HYETI.ipa');
+    final apkOnly = parseRelease({'tag_name': 'v9.9.9', 'assets': <Object>[]});
+
+    expect(offersUpdate(apkOnly), isTrue);
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => debugDefaultTargetPlatformOverride = null);
+    expect(offersUpdate(apkOnly), isFalse);
+    expect(offersUpdate(both), isTrue);
+    expect(offersUpdate(parseRelease({'tag_name': 'v$appVersion', 'assets': <Object>[]})), isFalse);
   });
 
   testWidgets('a newer release is offered on start, and skipping it keeps it quiet', (tester) async {
@@ -114,6 +131,16 @@ void main() {
     await start(tester);
     expect(find.text('Update available'), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('on an iPhone the offer installs through SideStore or AltStore', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    fakeGitHub('v9.9.9', ipa: true);
+    await start(tester);
+    expect(find.text('Update available'), findsOneWidget);
+    expect(find.text('Update'), findsOneWidget);
+    expect(find.textContaining('SideStore or AltStore'), findsOneWidget);
+    debugDefaultTargetPlatformOverride = null;
   });
 
   testWidgets('settings can check on request, even for a skipped version', (tester) async {

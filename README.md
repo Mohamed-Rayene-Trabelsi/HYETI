@@ -1,8 +1,8 @@
 # HYETI
 
-A personal planner for Android. Calendar, gym and food log, wallet, watchlist and notes in one app, with everything saved on the phone. The time and date stay in a bar at the top of every tab. No account, no sync, no ads.
+A personal planner for Android and iPhone. Calendar, gym and food log, wallet, watchlist and notes in one app, with everything saved on the phone. The time and date stay in a bar at the top of every tab. No account, no sync, no ads.
 
-**[Download the APK](https://github.com/Mohamed-Rayene-Trabelsi/HYETI/releases/latest/download/HYETI.apk)** · [All releases](https://github.com/Mohamed-Rayene-Trabelsi/HYETI/releases)
+**[Download the APK](https://github.com/Mohamed-Rayene-Trabelsi/HYETI/releases/latest/download/HYETI.apk)** · **[iPhone: add the SideStore/AltStore source](https://github.com/Mohamed-Rayene-Trabelsi/HYETI/releases/latest/download/altstore.json)** · [All releases](https://github.com/Mohamed-Rayene-Trabelsi/HYETI/releases)
 
 <p>
   <img src="test/preview/calendar_day.png" width="19%" alt="Calendar, day view">
@@ -14,7 +14,7 @@ A personal planner for Android. Calendar, gym and food log, wallet, watchlist an
 
 ## What's in it
 
-- **Home-screen widgets.** "Sketch" shows your newest sketch; tap it to keep drawing, or tap Draw for a blank canvas. Sketches are saved to Notes. "Savings jar" shows a jar of coins filling towards your savings goal, with a button to drop more in.
+- **Home-screen widgets** (Android only). "Sketch" shows your newest sketch; tap it to keep drawing, or tap Draw for a blank canvas. Sketches are saved to Notes. "Savings jar" shows a jar of coins filling towards your savings goal, with a button to drop more in.
 - **Calendar.** Set up a weekly routine once and it fills in every day. Day and month views. Blocks are added from one sheet: pick one of sixteen activities, a start time and a one-tap length. Days off (weekdays and single dates) are set in Settings, and work blocks stay off them.
 - **Body.** A muscle map that shows what you trained and what has rested long enough, with exercise suggestions and set logging. There is a countdown for your gym membership (pick its length: 1, 2, 3, 6 or 12 months, and renew it in one tap), and a nutrition side with a calorie and macro plan and a food log.
 - **Wallet.** What is in your wallet, income and spending, a weekly budget, and a savings jar kept apart from the wallet that fills up (and cheers at every quarter) as you drop money in. Each time, say whether the money comes out of your wallet or is new money, like a gift. Photograph a receipt and the amount, shop and date are filled in for you; the picture is read on the phone and never leaves it.
@@ -25,12 +25,31 @@ A personal planner for Android. Calendar, gym and food log, wallet, watchlist an
 
 ## Install
 
+### Android
+
 1. On your phone, tap the download link above.
 2. Open the file. Android will ask whether your browser may install apps; allow it.
 
 Updating is the same: install the new APK over the old one and your data stays.
 
 The APK is built for 64-bit ARM, which is almost every Android phone from 2017 onwards.
+
+### iPhone
+
+HYETI is not on the App Store. It installs through [SideStore](https://sidestore.io) or [AltStore](https://altstore.io), which sign it with your own free Apple ID. Needs iOS 15.5 or later.
+
+1. Install SideStore (works from the phone alone after setup) or AltStore (refreshes from AltServer on your computer over Wi-Fi). Follow their guide once.
+2. In SideStore or AltStore, open **Sources**, tap **+** and add:
+
+   ```
+   https://github.com/Mohamed-Rayene-Trabelsi/HYETI/releases/latest/download/altstore.json
+   ```
+
+3. Find HYETI in that source and tap **Free** / **Get**.
+
+Updating: new versions show up in the store's **Updates** tab, and HYETI itself offers each one on start. Updating keeps your data.
+
+With a free Apple ID, Apple lets a sideloaded app run for 7 days at a time. SideStore and AltStore refresh it in the background before then; if a refresh is missed, the app will not open until you refresh it, and your data is still there. A free Apple ID can have at most three sideloaded apps.
 
 ### Movies and series need a key
 
@@ -65,6 +84,8 @@ flutter test
 
 3. Rename `build/app/outputs/flutter-apk/app-release.apk` to `HYETI.apk` and attach it to a new [release](https://github.com/Mohamed-Rayene-Trabelsi/HYETI/releases/new) tagged with the version, for example `v1.0.2`. The download link at the top always points at the newest release, so the file name has to stay `HYETI.apk`.
 
+4. GitHub Actions (`.github/workflows/ios.yml`) then builds the iPhone app on a Mac and attaches `HYETI.ipa` and `altstore.json` to the same release, in about 15 minutes. Watch it under the repository's Actions tab. The tag must match the version in `pubspec.yaml` or that build stops. To try an iPhone build without releasing, run the workflow by hand from the Actions tab and download the IPA from its page.
+
 One catch: the APK is signed with the debug key of the computer that built it. A build from another computer has a different signature, and Android refuses to install it over the existing app until that app is uninstalled, which wipes its data. Build releases on one computer, or set up a proper release key first.
 
 ## Where things are
@@ -76,6 +97,8 @@ One catch: the APK is signed with the debug key of the computer that built it. A
 | `lib/` (the rest) | Shared pieces: database, theme, widgets, date helpers, the muscle map, the sketch canvas, the Watch tab's API calls |
 | `test/` | Unit and widget tests. `test/preview/` has screenshots drawn by `render_preview_test.dart` |
 | `android/` | The Android project Flutter builds |
+| `ios/` | The iPhone project, built only by GitHub Actions (it needs a Mac) |
+| `.github/workflows/ios.yml` | Builds `HYETI.ipa` and the SideStore/AltStore source for each release |
 
 Data lives in SQLite on the phone. The only network calls are the Watch tab's lookups to AniList, TMDB, OMDb and FotMob (football fixtures, only for the teams and leagues you follow), downloading a reading list from a link you paste, and a check on start for a newer release on GitHub.
 

@@ -1,0 +1,154 @@
+# Builds the iPhone app on a Mac runner and attaches it to the release.
+#
+# On a published release: builds that tag, attaches HYETI.ipa and altstore.json (the SideStore/AltStore source that
+# tells installed copies there is an update). Run by hand from the Actions tab: builds the current branch and keeps
+# the IPA as a downloadable artifact, without touching any release.
+#
+# The IPA is unsigned on purpose. SideStore or AltStore signs it with the person's own Apple ID when installing,
+# so no paid Apple Developer account is needed.
+name: iOS build
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.50.0'
+  BUNDLE_ID: dev.personalapp.hyeti
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Cache CocoaPods
+        uses: actions/cache@v4
+        with:
+          path: |
+            ios/Pods
+            ~/Library/Caches/CocoaPods
+          key: pods-${{ runner.os }}-${{ hashFiles('pubspec.lock', 'ios/Podfile') }}
+          restore-keys: pods-${{ runner.os }}-
+
+      - name: Read the version
+        id: version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          full=$(grep '^version:' pubspec.yaml | sed 's/version:[[:space:]]*//')
+          echo "name=${full%%+*}" >> "$GITHUB_OUTPUT"
+          echo "build=${full##*+}" >> "$GITHUB_OUTPUT"
+          if [ -n "$TAG" ] && [ "v${full%%+*}" != "$TAG" ]; then
+            echo "::error::Release tag $TAG does not match pubspec version v${full%%+*}"
+            exit 1
+          fi
+
+      - run: flutter pub get
+
+      # The screenshot tests are left out: fonts draw slightly differently on macOS, so their PNGs never match.
+      - name: Test
+        run: flutter test $(ls test/*_test.dart | grep -v -e render_preview -e figure_tmp)
+
+      - name: Build
+        run: flutter build ios --release --no-codesign
+
+      - name: Package HYETI.ipa
+        run: |
+          mkdir -p dist/Payload
+          cp -R build/ios/iphoneos/Runner.app dist/Payload/
+          cd dist && zip -qry HYETI.ipa Payload && rm -rf Payload
+          ls -lh HYETI.ipa
+
+      - name: Write the SideStore/AltStore source
+        env:
+          VERSION: ${{ steps.version.outputs.name }}
+          BUILD: ${{ steps.version.outputs.build }}
+          NOTES: ${{ github.event.release.body }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'EOF'
+          import json, os, datetime
+          repo = os.environ['REPO']
+          version = os.environ['VERSION']
+          size = os.path.getsize('dist/HYETI.ipa')
+          icon = f'https://raw.githubusercontent.com/{repo}/main/ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-1024.png'
+          url = f'https://github.com/{repo}/releases/download/v{version}/HYETI.ipa'
+          date = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+          notes = (os.environ.get('NOTES') or '').strip() or f'HYETI {version}'
+          description = ('A personal planner: calendar, gym and food log, wallet, watchlist, manga and notes, '
+                         'with everything saved on the phone. No account, no sync, no ads.')
+          source = {
+              'name': 'HYETI',
+              'identifier': os.environ['BUNDLE_ID'] + '.source',
+              'subtitle': 'Your personal planner',
+              'iconURL': icon,
+              'website': f'https://github.com/{repo}',
+              'tintColor': '#6C8CFF',
+              'apps': [{
+                  'name': 'HYETI',
+                  'bundleIdentifier': os.environ['BUNDLE_ID'],
+                  'developerName': repo.split('/')[0],
+                  'subtitle': 'Your personal planner',
+                  'localizedDescription': description,
+                  'iconURL': icon,
+                  'tintColor': '#6C8CFF',
+                  'versions': [{
+                      'version': version,
+                      'buildVersion': os.environ['BUILD'],
+                      'date': date,
+                      'localizedDescription': notes,
+                      'downloadURL': url,
+                      'size': size,
+                      'minOSVersion': '15.5',
+                  }],
+                  # Older AltStore versions read these instead of "versions".
+                  'version': version,
+                  'versionDate': date,
+                  'versionDescription': notes,
+                  'downloadURL': url,
+                  'size': size,
+                  'appPermissions': {
+                      'entitlements': [],
+                      'privacy': {
+                          'NSCameraUsageDescription': 'Reads the total, shop and date off a receipt.',
+                          'NSPhotoLibraryUsageDescription': 'Opens a photo you pick to read a receipt.',
+                      },
+                  },
+              }],
+              'news': [],
+          }
+          json.dump(source, open('dist/altstore.json', 'w'), indent=2)
+          EOF
+
+      - name: Attach to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" dist/HYETI.ipa dist/altstore.json --clobber
+
+      - name: Keep as an artifact
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: HYETI-ios-${{ steps.version.outputs.name }}
+          path: dist/
+          retention-days: 14

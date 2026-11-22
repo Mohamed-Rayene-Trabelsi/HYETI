@@ -9,6 +9,7 @@ import '../pickers.dart';
 import '../receipt.dart';
 import '../theme.dart';
 import '../ui.dart';
+import '../update.dart' show onIOS;
 
 /// What each kind of row is called in the list.
 const _rowLabel = {'expense': 'Spent', 'income': 'Income', 'saving': 'Into the jar', 'withdraw': 'Taken from the jar'};
@@ -618,7 +619,7 @@ class _TxFormState extends State<_TxForm> {
       debugPrint('Receipt scan: $e');
       final denied = e.toString().contains('access_denied');
       note = denied
-          ? 'HYETI may not use the ${camera ? 'camera' : 'photos'}. Allow it in Android settings, then try again.'
+          ? 'HYETI may not use the ${camera ? 'camera' : 'photos'}. Allow it in ${onIOS ? 'the Settings app' : 'Android settings'}, then try again.'
           : 'The picture could not be read ($e). Try again, or type the amount in.';
       found = [];
     }

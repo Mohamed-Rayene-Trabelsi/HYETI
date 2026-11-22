@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -14,6 +15,8 @@ const _channel = MethodChannel('hyeti/launch');
 /// Listens for the home-screen widgets' buttons (see SketchWidget.kt and JarWidget.kt) and opens what they ask for: once for the tap
 /// that started the app, and again for every tap while it runs.
 Future<void> listenForWidgetTaps() async {
+  // The widgets exist only on Android.
+  if (defaultTargetPlatform != TargetPlatform.android) return;
   _channel.setMethodCallHandler((call) async {
     if (call.method == 'open') await openFromWidget(call.arguments as String?);
   });
