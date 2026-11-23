@@ -1,4 +1,4 @@
-HYETI is a Flutter app for Android and iPhone. All data stays on the phone in SQLite; the only network calls are the Watch tab's lookups (AniList, TMDB, OMDb, and FotMob for football, which is unofficial and needs no key), and the update check, which asks GitHub for the latest release.
+HYETI is a Flutter app for Android and iPhone. All data stays on the phone in SQLite; the only network calls are the Watch tab's lookups (AniList, TMDB, OMDb, and FotMob for football, which is unofficial and needs no key), the food search on Open Food Facts (free, no key), and the update check, which asks GitHub for the latest release.
 
 ## Flutter has changed — check before you trust memory
 
@@ -37,6 +37,7 @@ The toolchain (`flutter`, JDK 17, the Android SDK) is on the user PATH; where it
 - `lib/screens/` — one file per tab: `calendar`, `body` (gym) with `nutrition`, `wallet`, `watch`, `notes`. `settings` is a pushed page, opened from the gear in `TopBar`.
 - `lib/db.dart` — the database: schema and migrations, `appDb`, the `Live` mixin, and `exportBackup` / `importBackup`.
 - `lib/reminders.dart` — notifications before calendar blocks (and three days before the gym membership ends): `planReminders` works out what to show, `syncReminders` hands the next week (at most 60, an iPhone's limit) to `reminderScheduler`. `main` calls `keepRemindersInStep`, which plans again two seconds after any write. Tests swap `reminderScheduler` for a fake. `lib/reminder_settings.dart` is Settings → Reminders and the Calendar's one-time offer. Routine blocks are copied into days with `fillRoutineDays` (in `screens/calendar.dart`), for the screen and for reminders alike.
+- `lib/food_search.dart` — food lookup for the Log food sheet: `basicFoods` (built-in everyday foods per 100 g, found offline), Open Food Facts search and barcode lookup (`searchProducts`, `productByBarcode`), and `readBarcode` (a photo read by ML Kit on the phone; tests swap it). Requests go through `httpClient` from `watch_api.dart`, so tests fake them the same way.
 - `lib/backup.dart` — Settings → Backup: saving everything to one `.hyeti` file (an SQLite copy of the database at the current schema version) and restoring from one. An older backup is upgraded with the same migrations as an installed app; a newer one is refused.
 - `lib/ui.dart` — shared widgets (`Screen`, `AppCard`, `AppButton`, `Field`, `showSheet`, …). Use these rather than raw Material widgets so screens stay consistent.
 - `lib/theme.dart` — colour themes (`palettes`, `customPalette`), the colours in use (`context.colors`), spacing, calendar categories. Never hard-code a colour a theme should control; take it from `context.colors`.

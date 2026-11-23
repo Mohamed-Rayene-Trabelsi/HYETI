@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:material_ui/material_ui.dart';
 
 import '../date.dart';
 import '../db.dart';
+import '../food_search.dart';
 import '../theme.dart';
 import '../ui.dart';
 
@@ -265,6 +267,8 @@ class _FoodForm extends StatefulWidget {
 }
 
 class _FoodFormState extends State<_FoodForm> with Live {
+  final _query = TextEditingController();
+  final _grams = TextEditingController();
   final _name = TextEditingController();
   final _kcal = TextEditingController();
   final _protein = TextEditingController();
@@ -272,6 +276,16 @@ class _FoodFormState extends State<_FoodForm> with Live {
   final _fat = TextEditingController();
   String _error = '';
   List<Rec> _recent = [];
+
+  /// Search: the built-in basics first, then packed foods from Open Food Facts.
+  Timer? _typing;
+  int _request = 0;
+  List<FoodFacts> _found = [];
+  bool _searching = false;
+  String _searchNote = '';
+
+  /// The food picked from the search or a barcode, whose numbers follow the amount.
+  FoodFacts? _picked;
 
   /// Foods logged before, most recent first, for one-tap refill.
   @override
@@ -283,19 +297,105 @@ class _FoodFormState extends State<_FoodForm> with Live {
 
   @override
   void dispose() {
-    for (final c in [_name, _kcal, _protein, _carbs, _fat]) {
+    _typing?.cancel();
+    for (final c in [_query, _grams, _name, _kcal, _protein, _carbs, _fat]) {
       c.dispose();
     }
     super.dispose();
   }
 
   void _fill(Rec f) => setState(() {
+    _picked = null;
     _name.text = f['name'] as String;
     _kcal.text = plainNumber(f['kcal'] as num);
     _protein.text = plainNumber(f['protein'] as num);
     _carbs.text = plainNumber(f['carbs'] as num);
     _fat.text = plainNumber(f['fat'] as num);
   });
+
+  void _onTyped(String text) {
+    _typing?.cancel();
+    final query = text.trim();
+    setState(() {
+      _found = matchBasics(query);
+      _searchNote = '';
+      _searching = query.length >= 2;
+    });
+    if (query.length < 2) return;
+    _typing = Timer(const Duration(milliseconds: 500), () => _search(query));
+  }
+
+  Future<void> _search(String query) async {
+    final request = ++_request;
+    try {
+      final products = await searchProducts(query);
+      if (!mounted || request != _request) return;
+      setState(() {
+        _found = [...matchBasics(query), ...products];
+        _searching = false;
+        if (_found.isEmpty) _searchNote = 'Nothing found. Try other words, or type the numbers in below.';
+      });
+    } catch (_) {
+      if (!mounted || request != _request) return;
+      setState(() {
+        _searching = false;
+        _searchNote = 'Could not reach Open Food Facts. The basics still work, or type the numbers in below.';
+      });
+    }
+  }
+
+  Future<void> _scan() async {
+    setState(() => _searchNote = '');
+    try {
+      final code = await readBarcode();
+      if (code == null || !mounted) return;
+      if (code.isEmpty) {
+        return setState(() => _searchNote = 'No barcode showed up. Fill the frame with it and try again.');
+      }
+      setState(() => _searching = true);
+      final food = await productByBarcode(code);
+      if (!mounted) return;
+      setState(() => _searching = false);
+      if (food == null) {
+        return setState(() => _searchNote = 'Barcode $code is not in Open Food Facts yet. Type the numbers in below.');
+      }
+      _pick(food);
+    } catch (e) {
+      debugPrint('Barcode: $e');
+      if (mounted) {
+        setState(() {
+          _searching = false;
+          _searchNote = 'The barcode could not be looked up. Is the phone online?';
+        });
+      }
+    }
+  }
+
+  void _pick(FoodFacts f) {
+    _typing?.cancel();
+    _request++;
+    _query.clear();
+    _picked = f;
+    _found = [];
+    _searching = false;
+    _searchNote = '';
+    _grams.text = plainNumber(f.portion ?? 100);
+    _applyGrams();
+  }
+
+  /// Fills the name and numbers from the picked food and the amount.
+  void _applyGrams() {
+    final f = _picked, grams = _parse(_grams.text);
+    if (f == null || grams == null) return setState(() {});
+    final v = f.of(grams);
+    setState(() {
+      _name.text = '${f.label}, ${plainNumber(grams)} g';
+      _kcal.text = plainNumber(v.kcal);
+      _protein.text = plainNumber(v.protein);
+      _carbs.text = plainNumber(v.carbs);
+      _fat.text = plainNumber(v.fat);
+    });
+  }
 
   void _save() {
     final name = _name.text.trim();
@@ -310,9 +410,70 @@ class _FoodFormState extends State<_FoodForm> with Live {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
+    final picked = _picked;
     return FormColumn(
       children: [
-        if (_recent.isNotEmpty)
+        Field(
+          controller: _query,
+          icon: Icons.search,
+          hint: 'Search foods, like oats or a brand',
+          textInputAction: TextInputAction.search,
+          onChanged: _onTyped,
+        ),
+        AppButton('Scan a barcode', kind: ButtonKind.soft, small: true, icon: Icons.qr_code_scanner, onPressed: _scan),
+        if (_searching) Center(child: CircularProgressIndicator(color: c.accent)),
+        if (_searchNote.isNotEmpty) T(_searchNote, variant: TextVariant.small, dim: true),
+        if (_found.isNotEmpty)
+          AppCard(
+            padding: listCardPadding,
+            children: [
+              for (final (i, f) in _found.take(10).indexed)
+                ListRow(
+                  divider: i > 0,
+                  onTap: () => _pick(f),
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          T(f.label, maxLines: 2),
+                          T(
+                            '${plainNumber(f.kcal.roundToDouble())} kcal · P ${plainNumber(f.protein)} g per 100 g',
+                            variant: TextVariant.small,
+                            dim: true,
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.add, color: c.accent),
+                  ],
+                ),
+            ],
+          ),
+        if (picked != null) ...[
+          Field(label: 'How much (g)', controller: _grams, keyboardType: _decimal, onChanged: (_) => _applyGrams()),
+          Wrap(
+            spacing: Spacing.sm,
+            runSpacing: Spacing.sm,
+            children: [
+              for (final (grams, label) in [
+                if (picked.portion != null && picked.portion != 100)
+                  (picked.portion!, picked.portionName.isEmpty ? '1 serving' : picked.portionName),
+                (100.0, '100 g'),
+              ])
+                AppChip(
+                  label,
+                  selected: _parse(_grams.text) == grams,
+                  onPressed: () {
+                    _grams.text = plainNumber(grams);
+                    _applyGrams();
+                  },
+                ),
+            ],
+          ),
+        ],
+        if (_recent.isNotEmpty && picked == null && _found.isEmpty)
           Wrap(
             spacing: Spacing.sm,
             runSpacing: Spacing.sm,
@@ -337,8 +498,13 @@ class _FoodFormState extends State<_FoodForm> with Live {
             ),
           ],
         ),
-        if (_error.isNotEmpty) T(_error, color: context.colors.danger),
+        if (_error.isNotEmpty) T(_error, color: c.danger),
         AppButton('Log food', onPressed: _save),
+        const T(
+          'Packed foods come from Open Food Facts, a free database anyone can add to. Check the numbers against the pack.',
+          variant: TextVariant.small,
+          dim: true,
+        ),
       ],
     );
   }
