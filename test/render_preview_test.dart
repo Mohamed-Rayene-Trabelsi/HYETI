@@ -55,6 +55,7 @@ Future<void> seed() async {
   final today = todayKey();
   await appDb.setSetting('theme', 'dark');
   await appDb.setSetting('tmdb_key', 'preview');
+  await appDb.setSetting('reminder_asked', true);
   for (final (title, category, days, start, end) in [
     ('Deep work', 'work', '0,1,2,3,4,5,6', 540, 660),
     ('Lunch', 'food', '0,1,2,3,4,5,6', 780, 825),

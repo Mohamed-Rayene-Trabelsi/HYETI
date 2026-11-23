@@ -58,7 +58,13 @@ class MonthGrid extends StatelessWidget {
       final isToday = key == today;
       final isOff = offDates.contains(key);
       final dayEvents = byDate[key] ?? const <Rec>[];
-      final dots = {for (final e in dayEvents) _colorOf(e)}.take(4);
+      // The weekly routine is the same every day, so its blocks earn no dot: only what is different that day does
+      // (a match, something added for that day). A past day where everything was ticked off gets a check instead.
+      final dots = {
+        for (final e in dayEvents)
+          if (e['routine_id'] == null) _colorOf(e),
+      }.take(4);
+      final allDone = key.compareTo(today) < 0 && dayEvents.isNotEmpty && dayEvents.every((e) => e['done'] == 1);
       final numberColor = isSelected
           ? c.onAccent
           : isToday
@@ -94,7 +100,7 @@ class MonthGrid extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     SizedBox(
-                      height: 6,
+                      height: 8,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         spacing: 3,
@@ -105,6 +111,7 @@ class MonthGrid extends StatelessWidget {
                               height: 3,
                               decoration: BoxDecoration(color: c.warn, borderRadius: BorderRadius.circular(2)),
                             ),
+                          if (allDone && dots.isEmpty) Icon(Icons.check, size: 8, color: c.success),
                           for (final color in dots)
                             Container(
                               width: 5,

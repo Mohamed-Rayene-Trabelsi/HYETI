@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 
@@ -216,66 +217,117 @@ class Screen extends StatelessWidget {
   final List<Widget> children;
 
   @override
+  Widget build(BuildContext context) => _ScreenFrame(screen: this);
+}
+
+/// Lays out a [Screen]. Its floating buttons shrink to their icons while the page scrolls down, so they cover less
+/// of what is under them, and grow back when it scrolls up or reaches the top.
+class _ScreenFrame extends StatefulWidget {
+  const _ScreenFrame({required this.screen});
+
+  final Screen screen;
+
+  @override
+  State<_ScreenFrame> createState() => _ScreenFrameState();
+}
+
+class _ScreenFrameState extends State<_ScreenFrame> {
+  bool _compact = false;
+
+  bool _onScroll(ScrollNotification n) {
+    if (n.depth != 0 || n.metrics.axis != Axis.vertical) return false;
+    var compact = _compact;
+    if (n.metrics.pixels <= 0) {
+      compact = false;
+    } else if (n is UserScrollNotification) {
+      if (n.direction == ScrollDirection.reverse) compact = true;
+      if (n.direction == ScrollDirection.forward) compact = false;
+    }
+    if (compact != _compact) setState(() => _compact = compact);
+    return false;
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final w = widget.screen;
+    final title = w.title, subtitle = w.subtitle, actions = w.actions, children = w.children;
+    final fabLabel = w.fabLabel, onFab = w.onFab, fabIcon = w.fabIcon;
+    final secondFabLabel = w.secondFabLabel, onSecondFab = w.onSecondFab, secondFabIcon = w.secondFabIcon;
+    final onBack = w.onBack;
     final hasFab = fabLabel != null && onFab != null;
-    return Stack(
-      children: [
-        SafeArea(
-          bottom: false,
-          child: SingleChildScrollView(
-            primary: true,
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            padding: EdgeInsets.fromLTRB(Spacing.lg, Spacing.md, Spacing.lg, hasFab ? 104 : Spacing.xxl),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: maxContentWidth),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  spacing: Spacing.lg,
-                  children: [
-                    Row(
-                      spacing: Spacing.sm,
-                      children: [
-                        if (onBack != null) HeaderIcon(Icons.arrow_back, label: 'Back', onPressed: onBack!),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              T(title, variant: TextVariant.title, maxLines: 1),
-                              if (subtitle != null) T(subtitle!, dim: true, maxLines: 1),
-                            ],
+    return NotificationListener<ScrollNotification>(
+      onNotification: _onScroll,
+      child: Stack(
+        children: [
+          SafeArea(
+            bottom: false,
+            child: SingleChildScrollView(
+              primary: true,
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: EdgeInsets.fromLTRB(Spacing.lg, Spacing.md, Spacing.lg, hasFab ? 104 : Spacing.xxl),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: maxContentWidth),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    spacing: Spacing.lg,
+                    children: [
+                      Row(
+                        spacing: Spacing.sm,
+                        children: [
+                          if (onBack != null) HeaderIcon(Icons.arrow_back, label: 'Back', onPressed: onBack),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                T(title, variant: TextVariant.title, maxLines: 1),
+                                if (subtitle != null) T(subtitle, dim: true, maxLines: 1),
+                              ],
+                            ),
                           ),
-                        ),
-                        ...actions,
-                      ],
-                    ),
-                    ...children,
-                  ],
+                          ...actions,
+                        ],
+                      ),
+                      ...children,
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-        if (hasFab)
-          Positioned(
-            right: Spacing.lg,
-            bottom: Spacing.lg,
-            child: Row(
-              spacing: Spacing.sm,
-              children: [
-                if (secondFabLabel != null && onSecondFab != null)
-                  _Fab(label: secondFabLabel!, icon: secondFabIcon, onPressed: onSecondFab!, quiet: true),
-                _Fab(label: fabLabel!, icon: fabIcon, onPressed: onFab!),
-              ],
+          if (hasFab)
+            Positioned(
+              right: Spacing.lg,
+              bottom: Spacing.lg,
+              child: Row(
+                spacing: Spacing.sm,
+                children: [
+                  if (secondFabLabel != null && onSecondFab != null)
+                    _Fab(
+                      label: secondFabLabel,
+                      icon: secondFabIcon,
+                      onPressed: onSecondFab,
+                      quiet: true,
+                      compact: _compact,
+                    ),
+                  _Fab(label: fabLabel, icon: fabIcon, onPressed: onFab, compact: _compact),
+                ],
+              ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }
 
 class _Fab extends StatelessWidget {
-  const _Fab({required this.label, required this.icon, required this.onPressed, this.quiet = false});
+  const _Fab({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+    this.quiet = false,
+    this.compact = false,
+  });
 
   final String label;
   final IconData icon;
@@ -283,6 +335,9 @@ class _Fab extends StatelessWidget {
 
   /// Drawn in the card colour rather than the accent.
   final bool quiet;
+
+  /// Only the icon, while the page scrolls down.
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -294,23 +349,28 @@ class _Fab extends StatelessWidget {
       excludeSemantics: true,
       child: Material(
         color: quiet ? c.surfaceAlt : c.accent,
-        elevation: 3,
-        shadowColor: const Color(0xFF000000),
+        elevation: 2,
+        // A soft shadow: pure black drew a hard dark ring around the button on dark themes.
+        shadowColor: const Color(0x59000000),
         shape: quiet ? buttonShape.copyWith(side: BorderSide(color: c.border, width: 0.5)) : buttonShape,
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onPressed,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 20, 0),
+            padding: EdgeInsets.fromLTRB(16, 0, compact ? 16 : 20, 0),
             child: SizedBox(
               height: 54,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                spacing: Spacing.sm,
-                children: [
-                  Icon(icon, color: fg, size: 22),
-                  T(label, variant: TextVariant.label, color: fg, style: const TextStyle(fontSize: 15)),
-                ],
+              child: AnimatedSize(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  spacing: Spacing.sm,
+                  children: [
+                    Icon(icon, color: fg, size: 22),
+                    if (!compact) T(label, variant: TextVariant.label, color: fg, style: const TextStyle(fontSize: 15)),
+                  ],
+                ),
               ),
             ),
           ),

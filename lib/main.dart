@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import 'db.dart';
 import 'football.dart';
 import 'launch.dart';
+import 'reminders.dart';
 import 'screens/body.dart';
 import 'screens/calendar.dart';
 import 'screens/notes.dart';
@@ -17,6 +18,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Opened before the first frame, so the saved theme is known and never flashes the wrong one.
   appDb = await AppDb.open();
+  keepRemindersInStep();
   runApp(const LifeApp(checkForUpdates: true));
 }
 

@@ -11,6 +11,7 @@ import '../db.dart';
 import '../pickers.dart';
 import '../theme.dart';
 import '../ui.dart';
+import '../reminder_settings.dart';
 
 /// What the block form hands back.
 class BlockValues {
@@ -80,6 +81,30 @@ String _span(int minutes) {
   return '${minutes ~/ 60} h${m > 0 ? ' $m min' : ''}';
 }
 
+/// Copies the routine blocks that apply to each date from [from] to [to] into that day, once. Days are filled the
+/// first time they are shown, or when reminders look ahead.
+Future<void> fillRoutineDays(String from, String to) => appDb.raw.transaction((txn) async {
+  for (final date in dateRange(from, to)) {
+    await txn.execute(
+      'INSERT OR IGNORE INTO events (routine_id, date, title, category, start_min, end_min, flex_min) '
+      'SELECT id, ?, title, category, start_min, end_min, flex_min FROM routines '
+      'WHERE created_date <= ? AND instr(days, ?) > 0',
+      [date, date, '${weekdayOf(date)}'],
+    );
+  }
+});
+
+/// The days off from [from] to [to]: the weekly days off and the single dates added in Settings.
+Future<Set<String>> offDatesBetween(String from, String to) async {
+  final weekly = offWeekdays();
+  final single = await appDb.query('SELECT date FROM day_offs WHERE date BETWEEN ? AND ?', [from, to]);
+  return {
+    for (final r in single) r['date'] as String,
+    for (final d in dateRange(from, to))
+      if (weekly.contains(weekdayOf(d))) d,
+  };
+}
+
 /// The weekdays (0 = Monday) that are always days off, as chosen in Settings. Work blocks are left out on them.
 List<int> offWeekdays() => [for (final d in appDb.setting<List<dynamic>>('off_weekdays', const [])) d as int];
 
@@ -141,17 +166,7 @@ class _CalendarScreenState extends State<CalendarScreen> with Live {
     }
 
     final from = _from, to = _to;
-    // Copy the routine blocks that apply to each date in the range into that day, once.
-    await appDb.raw.transaction((txn) async {
-      for (final date in dateRange(from, to)) {
-        await txn.execute(
-          'INSERT OR IGNORE INTO events (routine_id, date, title, category, start_min, end_min, flex_min) '
-          'SELECT id, ?, title, category, start_min, end_min, flex_min FROM routines '
-          'WHERE created_date <= ? AND instr(days, ?) > 0',
-          [date, date, '${weekdayOf(date)}'],
-        );
-      }
-    });
+    await fillRoutineDays(from, to);
     final events = await appDb.query(
       'SELECT * FROM events WHERE date BETWEEN ? AND ? AND hidden = 0 ORDER BY date, start_min + shift_min, id',
       [from, to],
@@ -419,6 +434,7 @@ class _CalendarScreenState extends State<CalendarScreen> with Live {
             now: now,
             onToggle: _toggle,
           ),
+          if (isToday && dayBlocks.isNotEmpty && ReminderOffer.due) const ReminderOffer(),
           if (ready)
             _Agenda(
               blocks: dayBlocks,

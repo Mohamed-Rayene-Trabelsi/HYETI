@@ -7,6 +7,8 @@ import '../db.dart';
 import '../football.dart';
 import '../football_pickers.dart';
 import '../pickers.dart';
+import '../reminder_settings.dart';
+import '../reminders.dart';
 import '../theme.dart';
 import '../ui.dart';
 import '../update.dart';
@@ -55,7 +57,7 @@ class SettingsScreen extends StatelessWidget {
                 dim: true,
               ),
               Section(
-                title: 'Look and region',
+                title: 'Look, region and reminders',
                 children: [
                   _MenuGroup(
                     children: [
@@ -83,6 +85,13 @@ class SettingsScreen extends StatelessWidget {
                         label: 'Days off',
                         value: off.isEmpty ? 'None every week' : off.map((d) => weekdays[d]).join(', '),
                         onTap: () => _open(context, 'Days off', (_) => const _DaysOff()),
+                      ),
+                      _MenuRow(
+                        icon: Icons.notifications_outlined,
+                        tint: const Color(0xFFB388FF),
+                        label: 'Reminders',
+                        value: reminderSummary(),
+                        onTap: () => _open(context, 'Reminders', (_) => const RemindersPage()),
                       ),
                     ],
                   ),
