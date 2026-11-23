@@ -34,7 +34,11 @@ val releaseKey: Map<String, String>? = run {
 
 android {
     namespace = "dev.personalapp.personal_mobile_app"
-    compileSdk = flutter.compileSdkVersion
+    // flutter_local_notifications (reminders) and its androidx.core need Android 37.1 to compile against. This changes
+    // nothing on phones: targetSdk below decides how the app behaves.
+    compileSdk {
+        version = release(37) { minorApiLevel = 1 }
+    }
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

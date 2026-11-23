@@ -29,7 +29,7 @@ flutter test test/render_preview_test.dart --update-goldens
 
 Do this after any layout or drawing change (the body figure in particular); add a `snap(...)` line for a new screen.
 
-The toolchain (`flutter`, JDK 17, the Android SDK) is on the user PATH; where it is installed differs per computer.
+The toolchain (`flutter`, JDK 17, the Android SDK) is on the user PATH; where it is installed differs per computer. The app compiles against Android SDK platform 37.1 (`flutter_local_notifications` needs it); install it with `sdkmanager "platforms;android-37.1"` on a new computer.
 
 ## Layout
 
