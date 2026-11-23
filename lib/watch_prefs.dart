@@ -15,7 +15,6 @@ const watchKinds = {
   'movie': ('Movies', 'Hot and upcoming films', Icons.movie_outlined),
   'series': ('Series', 'TV shows and their next episodes', Icons.tv),
   'anime': ('Anime', 'What is airing, from AniList', Icons.auto_awesome),
-  'manga': ('Manga', 'Manga, manhwa and manhua, chapter by chapter', Icons.menu_book_outlined),
   'match': ('Football', 'Matches of your country, clubs and leagues', Icons.sports_soccer),
 };
 
@@ -41,8 +40,9 @@ WatchPrefs watchPrefs() {
   final saved = appDb.setting<Map>('watch_prefs', const {});
   final kinds = saved['kinds'] is List
       ? {for (final k in saved['kinds'] as List) k as String}
-      : {'movie', 'series', 'anime', 'manga'};
-  kinds.remove('match');
+      : {'movie', 'series', 'anime'};
+  // Manga was a kind until 1.5.0; a choice saved before then may still name it.
+  kinds.removeAll(const ['match', 'manga']);
   if (!footballPrefs().off) kinds.add('match');
   return WatchPrefs(
     setUp: saved['setUp'] == true,

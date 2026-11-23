@@ -107,7 +107,7 @@ class _BackupPageState extends State<BackupPage> {
       children: [
         T(backupSummary(), variant: TextVariant.heading, color: backupDue() ? c.warn : null),
         const T(
-          'A backup is one file with everything in HYETI: calendar, workouts, meals, wallet, watch list, manga, notes, '
+          'A backup is one file with everything in HYETI: calendar, workouts, meals, wallet, watch list, notes, '
           'sketches and settings. Save it somewhere off this phone, like Google Drive, iCloud Drive or a message to '
           'yourself. It also moves your data to a new phone, Android or iPhone.',
           dim: true,

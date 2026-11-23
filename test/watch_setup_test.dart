@@ -34,7 +34,6 @@ void main() {
     // Everything is ticked to begin with; untick all but movies.
     await tapText(tester, 'Series');
     await tapText(tester, 'Anime');
-    await tapText(tester, 'Manga');
     await tapText(tester, 'Football');
     await tapText(tester, 'Next');
     expect(find.text('Which genres do you enjoy?'), findsOneWidget);
@@ -49,7 +48,6 @@ void main() {
     expect(find.text('My list'), findsOneWidget);
     expect(find.text('Movies'), findsOneWidget);
     expect(find.text('Anime'), findsNothing);
-    expect(find.text('Manga'), findsNothing);
 
     // The picked genre counts for suggestions before anything is saved.
     final taste = await tester.runAsync(loadTaste);

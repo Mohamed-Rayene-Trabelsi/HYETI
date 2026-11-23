@@ -1,7 +1,7 @@
 import 'db.dart';
 
-/// Genres, by one set of names for every source, so a filter or a taste means the same in Movies, Series,
-/// Anime and Manga. TMDB and AniList each have their own lists; these maps translate them.
+/// Genres, by one set of names for every source, so a filter or a taste means the same in Movies, Series and
+/// Anime. TMDB and AniList each have their own lists; these maps translate them.
 
 const _tmdbMovie = {
   28: ['Action'],
@@ -41,7 +41,7 @@ const _tmdbTv = {
   37: ['Western'],
 };
 
-/// AniList's genres (the same for anime and manga), minus the adult ones, which are never shown.
+/// AniList's genres, minus the adult ones, which are never shown.
 const _anilist = {
   'Action': 'Action',
   'Adventure': 'Adventure',
@@ -64,11 +64,9 @@ const _anilist = {
 
 Map<int, List<String>> _tmdbMap(String kind) => kind == 'movie' ? _tmdbMovie : _tmdbTv;
 
-/// The genres the filter offers for [kind] ('movie', 'series', 'anime' or 'manga'), in alphabetical order.
+/// The genres the filter offers for [kind] ('movie', 'series' or 'anime'), in alphabetical order.
 List<String> genresFor(String kind) {
-  final names = kind == 'anime' || kind == 'manga'
-      ? _anilist.values.toSet()
-      : {for (final list in _tmdbMap(kind).values) ...list};
+  final names = kind == 'anime' ? _anilist.values.toSet() : {for (final list in _tmdbMap(kind).values) ...list};
   return names.toList()..sort();
 }
 
@@ -116,7 +114,7 @@ class Taste {
   /// far counts a little more.
   final Map<String, double> weights;
 
-  /// Every `ext_id` on the watchlist and reading list, so recommendations skip what is already there.
+  /// Every `ext_id` on the watchlist, so recommendations skip what is already there.
   final Set<String> saved;
 
   /// Saved titles to find similar ones for, newest first: (ext_id, title).
@@ -138,13 +136,12 @@ class Taste {
       genres.where((g) => (weights[g] ?? 0) > 0).toList()..sort((a, b) => weights[b]!.compareTo(weights[a]!));
 }
 
-/// The taste read from the watchlist and the reading list.
+/// The taste read from the watchlist.
 Future<Taste> loadTaste() async {
   final watched = await appDb.query(
     'SELECT ext_id, title, genres, event_id FROM watch_items WHERE kind != ? ORDER BY id DESC',
     ['match'],
   );
-  final read = await appDb.query('SELECT ext_id, title, genres, status, chapter FROM reading ORDER BY updated_at DESC');
   final weights = <String, double>{};
   void add(Object? genres, double weight) {
     for (final g in parseGenres(genres)) {
@@ -159,14 +156,8 @@ Future<Taste> loadTaste() async {
   for (final w in watched) {
     add(w['genres'], w['event_id'] != null ? 1.5 : 1);
   }
-  for (final r in read) {
-    // Something dropped says little about what is liked.
-    if (r['status'] == 'dropped') continue;
-    final far = r['status'] == 'completed' || ((r['chapter'] as num?) ?? 0) >= 20;
-    add(r['genres'], far ? 1.5 : 1);
-  }
   final saved = {
-    for (final row in [...watched, ...read])
+    for (final row in watched)
       if (row['ext_id'] case final String id) id,
   };
   final seeds = [

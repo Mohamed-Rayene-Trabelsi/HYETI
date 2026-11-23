@@ -14,7 +14,6 @@ import '../theme.dart';
 import '../ui.dart';
 import '../watch_api.dart';
 import '../watch_prefs.dart';
-import 'reading.dart';
 import 'settings.dart';
 
 const _kindLabel = {'anime': 'Anime', 'movie': 'Movie', 'series': 'Series', 'match': 'Football'};
@@ -23,7 +22,6 @@ const _kindIcon = {
   'movie': Icons.movie_outlined,
   'series': Icons.tv,
   'match': Icons.sports_soccer,
-  'read': Icons.menu_book_outlined,
 };
 
 final _ratingPart = RegExp(r'^(IMDb|TMDB|AniList) ');
@@ -36,7 +34,7 @@ class WatchScreen extends StatefulWidget {
 }
 
 class _WatchScreenState extends State<WatchScreen> with Live {
-  /// 'mine', 'shows' (movies and series), 'anime', 'read' (manga) or 'match'.
+  /// 'mine', 'shows' (movies and series), 'anime' or 'match'.
   String _tab = 'mine';
 
   /// Which half of Shows is open: 'movie' or 'series'.
@@ -111,23 +109,21 @@ class _WatchScreenState extends State<WatchScreen> with Live {
     if (appDb.setting('genres_filled', '') == today) return;
     final tmdbKey = appDb.setting('tmdb_key', '');
     var changed = false, reached = false;
-    for (final table in ['watch_items', 'reading']) {
-      final rows = await appDb.query(
-        "SELECT id, ext_id FROM $table WHERE genres IS NULL AND ext_id IS NOT NULL AND ext_id NOT LIKE 'fotmob:%' "
-        'LIMIT 25',
-      );
-      for (final row in rows) {
-        try {
-          final genres = await fetchGenres(row['ext_id'] as String, tmdbKey);
-          if (genres == null) continue;
-          reached = true;
-          if (genres.isEmpty) continue;
-          // Straight to the database, then one redraw at the end.
-          await appDb.raw.execute('UPDATE $table SET genres = ? WHERE id = ?', [joinGenres(genres), row['id']]);
-          changed = true;
-        } catch (_) {
-          // Offline: try again another day.
-        }
+    final rows = await appDb.query(
+      "SELECT id, ext_id FROM watch_items WHERE genres IS NULL AND ext_id IS NOT NULL AND ext_id NOT LIKE 'fotmob:%' "
+      'LIMIT 25',
+    );
+    for (final row in rows) {
+      try {
+        final genres = await fetchGenres(row['ext_id'] as String, tmdbKey);
+        if (genres == null) continue;
+        reached = true;
+        if (genres.isEmpty) continue;
+        // Straight to the database, then one redraw at the end.
+        await appDb.raw.execute('UPDATE watch_items SET genres = ? WHERE id = ?', [joinGenres(genres), row['id']]);
+        changed = true;
+      } catch (_) {
+        // Offline: try again another day.
       }
     }
     if (reached) await appDb.setSetting('genres_filled', today);
@@ -256,7 +252,6 @@ class _WatchScreenState extends State<WatchScreen> with Live {
       if (showKinds.isNotEmpty)
         'shows': showKinds.length == 2 ? 'Shows' : (showKinds.single == 'movie' ? 'Movies' : 'Series'),
       if (prefs.shows('anime')) 'anime': 'Anime',
-      if (prefs.shows('manga')) 'read': 'Manga',
       if (prefs.shows('match')) 'match': 'Football',
     };
     final tab = tabs.containsKey(_tab) ? _tab : 'mine';
@@ -286,11 +281,7 @@ class _WatchScreenState extends State<WatchScreen> with Live {
     return Screen(
       title: 'Watchlist',
       // The tabs below already say what is here; the subtitle only counts what you saved.
-      subtitle: !prefs.setUp || allTitles.isEmpty || tab == 'read'
-          ? null
-          : '${allTitles.length} saved · ${upcoming.length} coming up',
-      fabLabel: tab == 'read' ? 'Add' : null,
-      onFab: tab == 'read' ? () => openReadingEdit(context) : null,
+      subtitle: !prefs.setUp || allTitles.isEmpty ? null : '${allTitles.length} saved · ${upcoming.length} coming up',
       // Once a key is saved nothing here asks for one again; both stay editable in Settings.
       actions: [
         if (prefs.setUp && showKinds.isNotEmpty && tmdbKey.isEmpty && omdbKey.isEmpty)
@@ -327,9 +318,7 @@ class _WatchScreenState extends State<WatchScreen> with Live {
                 title: upcoming.isEmpty ? 'Saved' : 'Out now or undated',
                 children: [for (final copies in rest) _itemCard(copies)],
               ),
-          ] else if (tab == 'read')
-            const ReadingView()
-          else if (tab == 'match')
+          ] else if (tab == 'match')
             _FootballView(
               prefs: football,
               isSaved: (f) => _savedAs(f) != null,
@@ -545,6 +534,9 @@ class _BrowserState extends State<_Browser> {
   /// Titles being saved right now, so the button cannot be pressed twice.
   final _saving = <String>{};
 
+  /// Saved while this list was on screen: stays in it, marked saved, rather than vanishing under the finger.
+  final _keep = <String>{};
+
   /// The scroll position of the screen this list sits in: nearing its end loads the next page.
   ScrollPosition? _scroll;
 
@@ -663,7 +655,10 @@ class _BrowserState extends State<_Browser> {
   /// Saves a title, or with [off] takes a saved one back off the list.
   Future<void> _save(Found f, {bool off = false}) async {
     if (_saving.contains(f.extId)) return;
-    setState(() => _saving.add(f.extId));
+    setState(() {
+      _saving.add(f.extId);
+      _keep.add(f.extId);
+    });
     try {
       await (off ? widget.onUnsave(f) : widget.onSave(f));
     } finally {
@@ -681,7 +676,11 @@ class _BrowserState extends State<_Browser> {
       _ => 'anime',
     };
     final typed = _text.text.trim();
-    final results = _results;
+    // What is on My list stays there and leaves the other lists, except when searching for it by name.
+    final results = typed.isEmpty
+        ? _results.where((f) => !widget.isSaved(f) || _keep.contains(f.extId)).toList()
+        : _results;
+    final allSaved = results.isEmpty && _results.isNotEmpty;
     final chips = [
       if (typed.isEmpty) ...[
         AppChip(
@@ -733,9 +732,16 @@ class _BrowserState extends State<_Browser> {
             icon: Icons.auto_awesome_outlined,
             title: 'Save a few you like',
             hint:
-                'Suggestions come from what is on your list and reading list. Save some $plural you enjoyed and '
+                'Suggestions come from what is on your list. Save some $plural you enjoyed and '
                 'they show up here.',
             action: AppButton('See what is hot', kind: ButtonKind.soft, onPressed: () => _setMode('hot')),
+          )
+        else if (allSaved && !_loading)
+          Empty(
+            icon: Icons.bookmark_added_outlined,
+            title: 'All on your list',
+            hint: 'Everything here is already saved. It is under My list.',
+            action: _more ? AppButton('Show more', kind: ButtonKind.soft, onPressed: () => _fetch(next: true)) : null,
           )
         else if (!_loading && _error.isEmpty && results.isEmpty)
           Empty(
@@ -1162,6 +1168,7 @@ class _FootballViewState extends State<_FootballView> {
               title: 'No matches in the next two weeks',
               hint: 'Nothing you follow plays before then.',
             ),
+          // Saved matches stay here: followed teams' matches are saved by themselves, and this is their schedule.
           ..._days(_matches),
         ],
         if (_error.isNotEmpty)

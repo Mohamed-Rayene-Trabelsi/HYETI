@@ -270,4 +270,27 @@ void main() {
     await tester.pump(const Duration(seconds: 5));
     await tester.pumpAndSettle();
   });
+
+  testWidgets('what is on My list leaves the other lists, but not a search for it', (tester) async {
+    fakeAnilist((v) => anilistPage([anime(1, title: 'Frieren'), anime(2, title: 'Dandadan')], more: false));
+    await tester.runAsync(
+      () => appDb.run("INSERT INTO watch_items (kind, title, ext_id) VALUES ('anime', 'Frieren', 'anilist:1')"),
+    );
+    await start(tester);
+    await tester.tap(find.text('Anime').hitTestable().first);
+    await settle(tester);
+    expect(find.text('Frieren'), findsNothing);
+    expect(find.text('Dandadan'), findsOneWidget);
+
+    // Saved here, it stays in view, marked saved, instead of vanishing.
+    await tapText(tester, 'Save');
+    expect(find.text('Dandadan'), findsOneWidget);
+    expect(find.text('Saved'), findsOneWidget);
+
+    // Looked up by name, a saved title still shows.
+    await tester.enterText(field(0), 'frieren');
+    await tester.pump(const Duration(milliseconds: 600));
+    await settle(tester);
+    expect(find.text('Frieren'), findsOneWidget);
+  });
 }

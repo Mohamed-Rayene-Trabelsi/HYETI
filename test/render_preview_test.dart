@@ -269,25 +269,6 @@ void main() {
     await tester.tap(find.text('Shows'));
     await settle(tester);
     await snap(tester, 'watch_shows');
-    await tester.runAsync(() async {
-      final now = DateTime.now().millisecondsSinceEpoch;
-      await appDb.run(
-        'INSERT INTO reading (title, kind, status, chapter, total, link, genres, updated_at) VALUES '
-        "('Solo Leveling', 'manhwa', 'reading', 142, 200, 'https://example.com', 'Action,Fantasy', ?), "
-        "('Vinland Saga', 'manga', 'reading', 120.5, NULL, '', 'Action,Drama', ?), "
-        "('Omniscient Reader', 'manhwa', 'completed', 250, 250, '', 'Fantasy', ?), "
-        "('Lookism', 'manhwa', 'plan', 0, NULL, '', 'Drama', ?)",
-        [now, now - 1, now - 2, now - 3],
-      );
-    });
-    await tester.tap(find.text('Manga').hitTestable());
-    await settle(tester);
-    await snap(tester, 'watch_manga');
-    await tester.tap(find.text('Import / export').hitTestable());
-    await settle(tester);
-    await snap(tester, 'manga_import');
-    await tester.tap(find.text('Close'));
-    await settle(tester);
     await tester.tap(find.text('Football').hitTestable());
     await settle(tester);
     await snap(tester, 'football_welcome');
