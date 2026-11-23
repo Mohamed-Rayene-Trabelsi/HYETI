@@ -24,6 +24,15 @@ Future<int> _count(String table) async => (await appDb.query('SELECT COUNT(*) AS
 Uint8List _withVersion(Uint8List bytes, int version) =>
     Uint8List.fromList(bytes)..buffer.asByteData().setUint32(60, version);
 
+/// Lets real time pass (the database works outside the test's clock) until [finder] finds something, or 10 s.
+Future<void> waitFor(WidgetTester tester, Finder finder) async {
+  for (var i = 0; i < 100 && finder.evaluate().isEmpty; i++) {
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.pump();
+  }
+  await settle(tester);
+}
+
 void main() {
   setUp(() async {
     sqfliteFfiInit();
@@ -92,11 +101,8 @@ void main() {
     expect(find.text('Never saved'), findsOneWidget);
     await tapText(tester, 'Backup');
 
-    await tester.runAsync(() async {
-      await tester.tap(find.text('Save a backup'));
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-    });
-    await settle(tester);
+    await tester.tap(find.text('Save a backup'));
+    await waitFor(tester, find.text('Backup saved. Keep it somewhere off this phone.'));
     expect(savedName, 'HYETI backup ${todayKey()}.hyeti');
     expect(find.text('Backup saved. Keep it somewhere off this phone.'), findsOneWidget);
     expect(appDb.setting('last_backup', ''), todayKey());
@@ -105,11 +111,8 @@ void main() {
     await settle(tester);
     await tapText(tester, 'Restore from a backup');
     expect(find.textContaining('replaces everything'), findsOneWidget);
-    await tester.runAsync(() async {
-      await tester.tap(find.text('Choose the file'));
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-    });
-    await settle(tester);
+    await tester.tap(find.text('Choose the file'));
+    await waitFor(tester, find.textContaining('Restored.'));
     expect(find.textContaining('Restored.'), findsOneWidget);
     expect(await tester.runAsync(() => _count('notes')), 1);
     expect(appDb.setting('currency', r'$'), '€');

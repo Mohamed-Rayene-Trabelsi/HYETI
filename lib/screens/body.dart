@@ -1,4 +1,7 @@
+import 'dart:async';
 import 'dart:math' as math;
+
+import 'package:flutter/services.dart';
 
 import 'package:material_ui/material_ui.dart';
 
@@ -9,6 +12,7 @@ import '../muscles.dart';
 import '../pickers.dart';
 import '../theme.dart';
 import '../ui.dart';
+import 'calendar.dart' show fillRoutineDays;
 import 'nutrition.dart';
 
 class BodyScreen extends StatefulWidget {
@@ -518,6 +522,13 @@ class _SetFormState extends State<_SetForm> with Live {
   String _message = '';
   bool _ok = false;
 
+  /// Seconds of rest left after the last set; null when no rest is counting down.
+  int? _restLeft;
+  Timer? _restTimer;
+
+  /// How long a rest lasts, changed with the − and + beside the countdown and remembered.
+  int get _restLength => appDb.setting('rest_seconds', 90);
+
   /// The most recent set of this exercise, if there is one.
   Rec? _last;
   List<Rec> _today = [];
@@ -556,10 +567,44 @@ class _SetFormState extends State<_SetForm> with Live {
 
   @override
   void dispose() {
+    _restTimer?.cancel();
     _name.dispose();
     _weight.dispose();
     _reps.dispose();
     super.dispose();
+  }
+
+  void _startRest() {
+    _restTimer?.cancel();
+    _restLeft = _restLength;
+    _restTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final left = (_restLeft ?? 0) - 1;
+      if (left <= 0) {
+        _restTimer?.cancel();
+        HapticFeedback.heavyImpact();
+        setState(() {
+          _restLeft = null;
+          _message = 'Rest over. Next set when you are ready.';
+          _ok = true;
+        });
+      } else {
+        setState(() => _restLeft = left);
+      }
+    });
+  }
+
+  void _stopRest() {
+    _restTimer?.cancel();
+    setState(() => _restLeft = null);
+  }
+
+  /// Changes the rest length by [seconds] (15 to 600), for this rest and the next ones.
+  Future<void> _changeRest(int seconds) async {
+    final length = (_restLength + seconds).clamp(15, 600);
+    final change = length - _restLength;
+    await appDb.setSetting('rest_seconds', length);
+    if (mounted && _restLeft != null) setState(() => _restLeft = math.max(1, _restLeft! + change));
   }
 
   double? get _weightValue =>
@@ -598,11 +643,18 @@ class _SetFormState extends State<_SetForm> with Live {
       w,
       r,
     ]);
+    // A set logged today ticks off today's gym block on the calendar.
+    final today = todayKey();
+    await fillRoutineDays(today, today);
+    await appDb.run("UPDATE events SET done = 1 WHERE date = ? AND category = 'gym' AND done = 0 AND hidden = 0", [
+      today,
+    ]);
     if (!mounted) return;
     setState(() {
       _message = 'Set $number logged. Change the numbers or tap again for the next one.';
       _ok = true;
     });
+    _startRest();
   }
 
   @override
@@ -652,6 +704,39 @@ class _SetFormState extends State<_SetForm> with Live {
             dim: true,
           ),
         if (_message.isNotEmpty) T(_message, variant: TextVariant.small, color: _ok ? c.success : c.danger),
+        if (_restLeft case final int left)
+          AppCard(
+            padding: const EdgeInsets.all(Spacing.md),
+            children: [
+              Row(
+                spacing: Spacing.sm,
+                children: [
+                  Icon(Icons.timer_outlined, color: c.accent),
+                  Expanded(
+                    child: T(
+                      'Rest ${left ~/ 60}:${'${left % 60}'.padLeft(2, '0')}',
+                      variant: TextVariant.heading,
+                      style: const TextStyle(fontFeatures: [FontFeature.tabularFigures()]),
+                    ),
+                  ),
+                ],
+              ),
+              Row(
+                spacing: Spacing.sm,
+                children: [
+                  Expanded(
+                    child: AppButton('−15 s', kind: ButtonKind.soft, small: true, onPressed: () => _changeRest(-15)),
+                  ),
+                  Expanded(
+                    child: AppButton('+15 s', kind: ButtonKind.soft, small: true, onPressed: () => _changeRest(15)),
+                  ),
+                  Expanded(
+                    child: AppButton('Skip rest', kind: ButtonKind.soft, small: true, onPressed: _stopRest),
+                  ),
+                ],
+              ),
+            ],
+          ),
         AppButton('Log set', onPressed: _save),
       ],
     );

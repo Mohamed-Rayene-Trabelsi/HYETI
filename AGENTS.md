@@ -57,6 +57,9 @@ The toolchain (`flutter`, JDK 17, the Android SDK) is on the user PATH; where it
 - Manga was removed in 1.5.0. Its `reading` table stays (migrations are never undone, and backups keep any rows), but nothing reads it.
 - Titles on My list are left out of the Movies, Series and Anime lists (Hot, Coming soon, For you), except when searching by name; one saved while its list is on screen stays there, marked saved, until the list is left. The Football tab keeps saved matches: followed teams' matches are saved by themselves and it is their schedule.
 - The Watch tab shows only the kinds chosen in `watch_prefs`. Football's on/off stays in the football settings (`off`); `saveWatchPrefs` keeps the two in step, so never store 'match' in `watch_prefs`.
+- Logging a gym set ticks off today's blocks in the Gym category, and starts a rest countdown in the set sheet (`rest_seconds`, default 90, changed with its −15/+15 buttons).
+- The Wallet's "Where it went" card groups this month's expenses by their label (blank labels are "Other"); the one-tap labels in the add sheet are what make it useful. There is no separate category column.
+- Football errors go through `footballError` (in `screens/watch.dart`): being offline and FotMob answering in a way the app no longer understands get different messages. `followedMatches` rethrows the real error when every source fails.
 - Football downloads only what the person follows or searches for (one request per team or league), never a whole day of every match. What is followed is changed in Settings → Watch, not with filters on the Football tab.
 - Do not add widgets that capture horizontal drags (swipe-to-dismiss, horizontal lists): sideways swipes belong to tab switching.
 - The formatter width is 120 (`analysis_options.yaml`). Run `dart format lib test` after edits.

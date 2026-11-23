@@ -55,6 +55,9 @@ class _WalletScreenState extends State<WalletScreen> with Live {
   Map<String, double> _spentByDay = {};
   List<Rec> _recent = [];
 
+  /// This month's spending by label, biggest first: (label, total). Unlabelled spending is "Other".
+  List<(String, double)> _byLabel = [];
+
   /// How full the jar was at the last load, to cheer when a quarter mark is passed; null before the first load.
   double? _lastFill;
 
@@ -72,6 +75,13 @@ class _WalletScreenState extends State<WalletScreen> with Live {
       [from, to],
     );
     final recent = await appDb.query('SELECT * FROM transactions ORDER BY date DESC, id DESC LIMIT 60');
+    final month = monthStart(todayKey());
+    final byLabel = await appDb.query(
+      "SELECT CASE WHEN trim(label) = '' THEN 'Other' ELSE trim(label) END AS name, SUM(amount) AS total "
+      "FROM transactions WHERE kind = 'expense' AND date BETWEEN ? AND ? GROUP BY name ORDER BY total DESC",
+      [month, addDays(addMonths(month, 1), -1)],
+    );
+    _byLabel = [for (final r in byLabel) (r['name'] as String, _num(r['total']))];
     _week = week.first;
     _all = all.first;
     _spentByDay = {for (final r in byDay) r['date'] as String: _num(r['total'])};
@@ -238,7 +248,8 @@ class _WalletScreenState extends State<WalletScreen> with Live {
                 _Stat(label: 'Today', value: _money(_spentByDay[today] ?? 0)),
               ],
             ),
-            _WeekBars(from: weekFrom, spent: _spentByDay, money: _money),
+            // Empty bars say nothing; they appear once something is spent this week.
+            if (weekSpent > 0) _WeekBars(from: weekFrom, spent: _spentByDay, money: _money),
             if (weekIncome > 0) ...[
               ProgressBar(weekSpent / weekIncome, color: weekSpent > weekIncome ? c.danger : c.accent),
               T(
@@ -257,6 +268,7 @@ class _WalletScreenState extends State<WalletScreen> with Live {
               ),
           ],
         ),
+        if (_byLabel.isNotEmpty) _SpendingBreakdown(byLabel: _byLabel, money: _money),
         AppCard(
           children: [
             Row(
@@ -932,6 +944,61 @@ class _GoalFormState extends State<_GoalForm> {
         AppButton('Save goal', onPressed: _save),
         if (widget.goal != null)
           AppButton('Remove goal', kind: ButtonKind.danger, onPressed: () => widget.onSave(null, _currency)),
+      ],
+    );
+  }
+}
+
+/// Where this month's money went, by the label each expense was given: the five biggest, then the rest together.
+class _SpendingBreakdown extends StatelessWidget {
+  const _SpendingBreakdown({required this.byLabel, required this.money});
+
+  final List<(String, double)> byLabel;
+  final String Function(double) money;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final total = byLabel.fold(0.0, (sum, e) => sum + e.$2);
+    final rows = byLabel.length <= 6
+        ? byLabel
+        : [...byLabel.take(5), ('Everything else', byLabel.skip(5).fold(0.0, (sum, e) => sum + e.$2))];
+    return AppCard(
+      spacing: Spacing.md,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: T(
+                'WHERE IT WENT · ${formatMonth(todayKey()).toUpperCase()}',
+                variant: TextVariant.label,
+                dim: true,
+                maxLines: 1,
+              ),
+            ),
+            T(money(total), variant: TextVariant.label),
+          ],
+        ),
+        for (final (name, amount) in rows)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            spacing: 4,
+            children: [
+              Row(
+                children: [
+                  Expanded(child: T(name, maxLines: 1)),
+                  T(money(amount), variant: TextVariant.small, dim: true),
+                ],
+              ),
+              ProgressBar(total > 0 ? amount / total : 0, color: c.accent),
+            ],
+          ),
+        if (byLabel.any((e) => e.$1 == 'Other'))
+          const T(
+            'Give expenses a label, like Groceries or Transport, to see them apart.',
+            variant: TextVariant.small,
+            dim: true,
+          ),
       ],
     );
   }

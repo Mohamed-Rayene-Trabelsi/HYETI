@@ -243,14 +243,17 @@ Future<List<FootballMatch>> followedMatches(FootballPrefs prefs, {DateTime? now}
     for (final l in prefs.leagues) () => leagueMatches(l),
   ];
   var failed = 0;
+  Object? lastError;
   final lists = await Future.wait([
     for (final ask in asks)
-      ask().catchError((_) {
+      ask().catchError((Object e) {
         failed++;
+        lastError = e;
         return <FootballMatch>[];
       }),
   ]);
-  if (asks.isNotEmpty && failed == asks.length) throw Exception('No fixtures could be loaded');
+  // Thrown as it came, so the screen can tell being offline from FotMob answering in a way it no longer understands.
+  if (asks.isNotEmpty && failed == asks.length) throw lastError ?? Exception('No fixtures could be loaded');
   return _soon(lists.expand((l) => l), now ?? DateTime.now());
 }
 

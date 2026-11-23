@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io' show SocketException;
 import 'dart:math' as math;
 
+import 'package:http/http.dart' as http;
 import 'package:material_ui/material_ui.dart';
 
 import '../date.dart';
@@ -942,11 +944,11 @@ class _FootballViewState extends State<_FootballView> {
         _loading = false;
         _matches = matches;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted || request != _request) return;
       setState(() {
         _loading = false;
-        _error = 'Check your internet connection and try again.';
+        _error = footballError(e);
       });
     }
   }
@@ -1000,11 +1002,11 @@ class _FootballViewState extends State<_FootballView> {
         _loading = false;
         _pickedMatches = matches;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted || request != _request) return;
       setState(() {
         _loading = false;
-        _error = 'Check your internet connection and try again.';
+        _error = footballError(e);
       });
     }
   }
@@ -1196,3 +1198,10 @@ class _FootballViewState extends State<_FootballView> {
     );
   }
 }
+
+/// What to say when football could not be loaded: offline, or FotMob (unofficial, and free to change without notice)
+/// answering in a way this version does not understand.
+String footballError(Object e) => e is SocketException || e is TimeoutException || e is http.ClientException
+    ? 'Check your internet connection and try again.'
+    : 'FotMob did not answer as expected. It is an unofficial source and may have changed, so this can last until '
+          'HYETI is updated. Matches already on your calendar stay there.';
