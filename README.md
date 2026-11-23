@@ -21,6 +21,7 @@ A personal planner for Android and iPhone. Calendar, gym and food log, wallet, w
 - **Watch.** The first time, say what you are into (movies, series, anime, manga, football) and which genres you enjoy, and only those show up. A watchlist for shows (movies and series), anime and football, with what's popular, what's coming out, and your football: the first time, pick your country, your clubs and any of the five big leagues, and see the next two weeks of their matches. Your country's and clubs' matches go on your calendar by themselves. Not into football? Say so once and the tab goes away. Search runs as you type, every list can be filtered by genre, and "For you" suggests movies, series and anime from what you saved. A watch night or a match can go straight onto the calendar.
 - **Manga.** A reading list for manga, manhwa and manhua with the chapter you reached, one tap per chapter. Add titles from AniList's search or by hand, and bring a list in or out as a CSV file, from the clipboard, or from a link to a file in a GitHub repository or gist.
 - **Notes.** Written notes and finger-drawn sketches, which you can search and pin. Sketches have six pen colours, three pen sizes, an eraser, and undo and redo.
+- **Backup.** Save everything to one file and keep it off the phone (Google Drive, iCloud Drive, a message to yourself). Restoring it puts everything back, on the same phone or a new one, Android or iPhone.
 - **Settings.** Grouped and labelled, with one Watch page for what you watch, favourite genres, the movie keys and the football you follow. Light or dark, eight colour themes (one of them yours to mix), your country and its currency, units, days off, and a button that erases everything.
 
 ## Install
@@ -76,17 +77,19 @@ flutter test
 ### Making a release
 
 1. Raise `version` in `pubspec.yaml`, both parts (`1.0.1+2` becomes `1.0.2+3`). Android won't install a build over an older one unless the number after the `+` went up. Set `appVersion` in `lib/update.dart` to the same first part; the app compares it with the newest release to offer updates.
-2. Build:
+2. Build. This runs the checks, builds the APK, makes sure it is signed with the release key, and puts it in `release/HYETI.apk`:
 
-   ```bash
-   flutter build apk --release --target-platform android-arm64
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File tooluild-release.ps1
    ```
 
-3. Rename `build/app/outputs/flutter-apk/app-release.apk` to `HYETI.apk` and attach it to a new [release](https://github.com/Mohamed-Rayene-Trabelsi/HYETI/releases/new) tagged with the version, for example `v1.0.2`. The download link at the top always points at the newest release, so the file name has to stay `HYETI.apk`.
+3. Attach `release/HYETI.apk` to a new [release](https://github.com/Mohamed-Rayene-Trabelsi/HYETI/releases/new) tagged with the version, for example `v1.0.2`. The download link at the top always points at the newest release, so the file name has to stay `HYETI.apk`.
 
 4. GitHub Actions (`.github/workflows/ios.yml`) then builds the iPhone app on a Mac and attaches `HYETI.ipa` and `altstore.json` to the same release, in about 15 minutes. Watch it under the repository's Actions tab. The tag must match the version in `pubspec.yaml` or that build stops. To try an iPhone build without releasing, run the workflow by hand from the Actions tab and download the IPA from its page.
 
-One catch: the APK is signed with the debug key of the computer that built it. A build from another computer has a different signature, and Android refuses to install it over the existing app until that app is uninstalled, which wipes its data. Build releases on one computer, or set up a proper release key first.
+### The signing key
+
+Release APKs are signed with `android/hyeti-release.jks`, and `android/key.properties` holds its passwords. Neither is in git. Android installs an update only if it is signed with the same key as the app already on the phone, so **back up both files** (a USB stick, a password manager, a private cloud folder). Lose them, and the next version can only be installed by uninstalling HYETI first, which wipes its data (save a backup in the app before that). To build on another computer, copy both files into its `android/` folder.
 
 ## Where things are
 

@@ -1,7 +1,35 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// The release key: android/key.properties and the keystore it names (both kept out of git), or the HYETI_KEYSTORE,
+// HYETI_KEYSTORE_PASSWORD and HYETI_KEY_ALIAS environment variables (for a build server). It is the key that signed every
+// release since 1.1.1, so APKs signed with it install over the app on phones; any other key cannot.
+val releaseKey: Map<String, String>? = run {
+    val file = rootProject.file("key.properties")
+    if (file.exists()) {
+        val props = Properties().apply { file.inputStream().use { load(it) } }
+        mapOf(
+            "storeFile" to rootProject.file(props.getProperty("storeFile")).path,
+            "storePassword" to props.getProperty("storePassword"),
+            "keyAlias" to props.getProperty("keyAlias"),
+            "keyPassword" to props.getProperty("keyPassword"),
+        )
+    } else {
+        System.getenv("HYETI_KEYSTORE")?.let { store ->
+            val password = System.getenv("HYETI_KEYSTORE_PASSWORD") ?: ""
+            mapOf(
+                "storeFile" to store,
+                "storePassword" to password,
+                "keyAlias" to (System.getenv("HYETI_KEY_ALIAS") ?: "hyeti"),
+                "keyPassword" to password,
+            )
+        }
+    }
 }
 
 android {
@@ -29,11 +57,23 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (releaseKey != null) {
+            create("release") {
+                storeFile = file(releaseKey.getValue("storeFile"))
+                storePassword = releaseKey.getValue("storePassword")
+                keyAlias = releaseKey.getValue("keyAlias")
+                keyPassword = releaseKey.getValue("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // Without the release key (a fresh clone, another computer) the build still works but is signed with that
+            // computer's debug key, and the APK will not install over the app on a phone.
+            signingConfig = signingConfigs.getByName(if (releaseKey != null) "release" else "debug")
+            if (releaseKey == null) logger.warn("HYETI: android/key.properties not found; signing the release APK with the debug key.")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }

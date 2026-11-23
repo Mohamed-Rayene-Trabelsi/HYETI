@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
 import 'package:path/path.dart' as p;
@@ -19,10 +21,11 @@ late AppDb appDb;
 
 /// The on-device database. Notifies listeners after every write so screens can re-read.
 class AppDb extends ChangeNotifier {
-  AppDb._(this.raw, this._settings);
+  AppDb._(this.raw, this._settings, this._factory);
 
   final Database raw;
   final Map<String, Object?> _settings;
+  final DatabaseFactory _factory;
 
   static Future<AppDb> open({DatabaseFactory? factory, String? path}) async {
     final f = factory ?? databaseFactory;
@@ -34,7 +37,7 @@ class AppDb extends ChangeNotifier {
         onUpgrade: (db, from, to) => _migrate(db, from),
       ),
     );
-    return AppDb._(raw, await _readSettings(raw));
+    return AppDb._(raw, await _readSettings(raw), f);
   }
 
   static Future<Map<String, Object?>> _readSettings(Database raw) async {
@@ -85,6 +88,89 @@ class AppDb extends ChangeNotifier {
   /// Makes every screen re-read, e.g. when the app comes back to the foreground on a new day.
   void refresh() => notifyListeners();
 
+  /// Everything, as an SQLite file: the same tables at the same schema version, so [importBackup] on any phone (Android or
+  /// iPhone) with this or a later version of the app can read it.
+  Future<Uint8List> exportBackup() async {
+    final dir = await Directory.systemTemp.createTemp('hyeti-backup');
+    final file = p.join(dir.path, 'backup.db');
+    try {
+      final copy = await _factory.openDatabase(
+        file,
+        options: OpenDatabaseOptions(version: _databaseVersion, onCreate: (db, _) => _migrate(db, 0)),
+      );
+      await copy.close();
+      await _copyAll(from: 'main', to: 'b', file: file);
+      return await File(file).readAsBytes();
+    } finally {
+      await dir.delete(recursive: true);
+    }
+  }
+
+  /// Replaces everything with the backup in [bytes]. An older backup is brought up to date first, the same way an
+  /// update brings up an installed app's data. Throws a [BackupError] saying what is wrong, before touching any data,
+  /// when [bytes] is not a HYETI backup or comes from a newer version of the app.
+  Future<void> importBackup(Uint8List bytes) async {
+    const header = 'SQLite format 3\u0000';
+    if (bytes.length < 100 || String.fromCharCodes(bytes.take(header.length)) != header) {
+      throw const BackupError('That file is not a HYETI backup.');
+    }
+    final dir = await Directory.systemTemp.createTemp('hyeti-restore');
+    final file = p.join(dir.path, 'restore.db');
+    try {
+      await File(file).writeAsBytes(bytes, flush: true);
+      Database backup;
+      try {
+        backup = await _factory.openDatabase(
+          file,
+          options: OpenDatabaseOptions(
+            version: _databaseVersion,
+            onUpgrade: (db, from, to) async {
+              if (from < 1) throw const BackupError('That file is not a HYETI backup.');
+              await _migrate(db, from);
+            },
+            onDowngrade: (db, from, to) =>
+                throw const BackupError('That backup was made by a newer version of HYETI. Update the app first.'),
+          ),
+        );
+      } on BackupError {
+        rethrow;
+      } catch (_) {
+        throw const BackupError('That file is not a HYETI backup, or it is damaged.');
+      }
+      try {
+        final found = await backup.rawQuery("SELECT name FROM sqlite_master WHERE type = 'table'");
+        final names = {for (final r in found) r['name']};
+        if (!_tables.every(names.contains)) throw const BackupError('That file is not a HYETI backup.');
+      } finally {
+        await backup.close();
+      }
+      await _copyAll(from: 'b', to: 'main', file: file);
+    } finally {
+      await dir.delete(recursive: true);
+    }
+    _settings
+      ..clear()
+      ..addAll(await _readSettings(raw));
+    notifyListeners();
+  }
+
+  /// Replaces every table in database [to] with database [from]'s rows, where one of them is this database ('main')
+  /// and the other the file [file], attached as 'b'. Both must be at the current schema version.
+  Future<void> _copyAll({required String from, required String to, required String file}) async {
+    await raw.execute('ATTACH DATABASE ? AS b', [file]);
+    try {
+      await raw.transaction((txn) async {
+        for (final table in _tables) {
+          final columns = (await txn.rawQuery('PRAGMA main.table_info($table)')).map((c) => c['name']).join(', ');
+          await txn.execute('DELETE FROM $to.$table');
+          await txn.execute('INSERT INTO $to.$table ($columns) SELECT $columns FROM $from.$table');
+        }
+      });
+    } finally {
+      await raw.execute('DETACH DATABASE b');
+    }
+  }
+
   Future<void> eraseAll() async {
     await raw.transaction((txn) async {
       for (final table in _tables) {
@@ -94,6 +180,16 @@ class AppDb extends ChangeNotifier {
     _settings.clear();
     notifyListeners();
   }
+}
+
+/// Why a backup could not be restored, in words for the person.
+class BackupError implements Exception {
+  const BackupError(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
 }
 
 /// Add a new `if (from < N)` block per schema change.

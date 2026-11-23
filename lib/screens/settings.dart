@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 
+import '../backup.dart';
 import '../countries.dart';
 import '../date.dart';
 import '../db.dart';
@@ -114,6 +115,13 @@ class SettingsScreen extends StatelessWidget {
                 children: [
                   _MenuGroup(
                     children: [
+                      _MenuRow(
+                        icon: Icons.save_alt,
+                        tint: backupDue() ? c.warn : c.success,
+                        label: 'Backup',
+                        value: backupSummary(),
+                        onTap: () => _open(context, 'Backup', (_) => const BackupPage()),
+                      ),
                       _MenuRow(
                         icon: Icons.info_outline,
                         tint: c.textDim,
@@ -374,7 +382,7 @@ class _ErasePageState extends State<_ErasePage> {
         T('Erase everything?', variant: TextVariant.heading, color: c.danger),
         const T(
           'Every block, note, sketch, workout, meal, transaction, saved title and setting is removed from this '
-          'phone. This cannot be undone.',
+          'phone. This cannot be undone, unless you saved a backup first (Settings → Backup).',
           dim: true,
         ),
         AppButton('Erase everything', kind: ButtonKind.danger, icon: Icons.delete_outline, onPressed: _eraseAll),

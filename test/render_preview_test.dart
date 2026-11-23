@@ -319,6 +319,11 @@ void main() {
     await snap(tester, 'settings_watch');
     await tester.tap(find.byIcon(Icons.arrow_back).hitTestable());
     await settle(tester);
+    await tester.tap(find.text('Backup').hitTestable().last);
+    await settle(tester);
+    await snap(tester, 'settings_backup');
+    await tester.tap(find.byIcon(Icons.arrow_back).hitTestable());
+    await settle(tester);
     // The Watch tab's first-time questions.
     await tester.runAsync(() => appDb.setSetting('watch_prefs', {'setUp': false}));
     await settle(tester);
