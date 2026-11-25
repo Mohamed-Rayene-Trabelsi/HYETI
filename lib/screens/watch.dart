@@ -36,11 +36,8 @@ class WatchScreen extends StatefulWidget {
 }
 
 class _WatchScreenState extends State<WatchScreen> with Live {
-  /// 'mine', 'shows' (movies and series), 'anime' or 'match'.
+  /// 'mine', 'movie', 'series', 'anime' or 'match'.
   String _tab = 'mine';
-
-  /// Which half of Shows is open: 'movie' or 'series'.
-  String _showKind = 'movie';
   List<Rec> _items = [];
 
   /// The genre each list is filtered by: 'mine', 'movie', 'series' or 'anime' → genre; absent for all.
@@ -249,17 +246,17 @@ class _WatchScreenState extends State<WatchScreen> with Live {
       for (final k in const ['movie', 'series'])
         if (prefs.shows(k)) k,
     ];
+    // One row of tabs: no second bar for Movies / Series.
     final tabs = {
       'mine': 'My list',
-      if (showKinds.isNotEmpty)
-        'shows': showKinds.length == 2 ? 'Shows' : (showKinds.single == 'movie' ? 'Movies' : 'Series'),
+      if (showKinds.contains('movie')) 'movie': 'Movies',
+      if (showKinds.contains('series')) 'series': 'Series',
       if (prefs.shows('anime')) 'anime': 'Anime',
       if (prefs.shows('match')) 'match': 'Football',
     };
     final tab = tabs.containsKey(_tab) ? _tab : 'mine';
     final mine = tab == 'mine';
-    final showKind = showKinds.contains(_showKind) || showKinds.isEmpty ? _showKind : showKinds.first;
-    final kind = tab == 'shows' ? showKind : tab;
+    final kind = tab;
     final today = todayKey();
     // One card per title. A title with any entry still ahead goes under "Coming up", led by that entry;
     // otherwise it goes under "Out now or undated". It is never in both.
@@ -327,7 +324,7 @@ class _WatchScreenState extends State<WatchScreen> with Live {
               onSave: _saveFound,
               onUnsave: _unsaveFound,
             )
-          else if (tab == 'shows' && tmdbKey.isEmpty)
+          else if ((tab == 'movie' || tab == 'series') && tmdbKey.isEmpty)
             Empty(
               icon: Icons.key_outlined,
               title: omdbKey.isEmpty ? 'A free key is needed' : 'A TMDB key is needed',
@@ -337,13 +334,7 @@ class _WatchScreenState extends State<WatchScreen> with Live {
                   : 'Your OMDb key is saved, but the lists themselves come from TMDB. Its key is free too.',
               action: AppButton(omdbKey.isEmpty ? 'Add a key' : 'Add TMDB key', onPressed: _openKeys),
             )
-          else ...[
-            if (tab == 'shows' && showKinds.length == 2)
-              Segmented<String>(
-                value: showKind,
-                onChanged: (v) => setState(() => _showKind = v),
-                options: const {'movie': 'Movies', 'series': 'Series'},
-              ),
+          else
             _Browser(
               key: ValueKey(kind),
               kind: kind,
@@ -356,7 +347,6 @@ class _WatchScreenState extends State<WatchScreen> with Live {
               onUnsave: _unsaveFound,
               onFixKeys: _openKeys,
             ),
-          ],
         ],
       ],
     );
@@ -405,24 +395,30 @@ class _WatchScreenState extends State<WatchScreen> with Live {
             ),
           ],
         ),
+        // Two equal halves, so the card is balanced whatever the labels say.
         Row(
           spacing: Spacing.sm,
           children: [
-            if (copies.any((i) => i['live_event_id'] != null))
-              AppChip('On calendar', icon: Icons.check, selected: true, color: c.success)
-            else
-              // Flexible, so with a large font size the label shortens instead of pushing Remove off the card.
-              Flexible(
-                child: AppButton(
-                  upcoming ? 'Add to calendar' : 'Plan a watch night',
-                  icon: Icons.event_available_outlined,
-                  kind: ButtonKind.soft,
-                  small: true,
-                  onPressed: () => _addToCalendar(item),
-                ),
+            Expanded(
+              child: copies.any((i) => i['live_event_id'] != null)
+                  ? AppButton('On calendar', icon: Icons.check, kind: ButtonKind.soft, small: true, onPressed: null)
+                  : AppButton(
+                      upcoming ? 'Add to calendar' : 'Plan to watch',
+                      icon: Icons.event_available_outlined,
+                      kind: ButtonKind.soft,
+                      small: true,
+                      onPressed: () => _addToCalendar(item),
+                    ),
+            ),
+            Expanded(
+              child: AppButton(
+                'Remove',
+                icon: Icons.delete_outline,
+                kind: ButtonKind.soft,
+                small: true,
+                onPressed: () => _remove(copies),
               ),
-            const Spacer(),
-            AppButton('Remove', kind: ButtonKind.plain, small: true, onPressed: () => _remove(copies)),
+            ),
           ],
         ),
       ],
@@ -448,8 +444,8 @@ class WatchPoster extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(Radii.sm),
       child: SizedBox(
-        width: 54,
-        height: 80,
+        width: kind == 'match' ? 48 : 54,
+        height: kind == 'match' ? 48 : 80,
         child: url == null || url!.isEmpty
             ? placeholder
             : kind == 'match'
@@ -683,52 +679,55 @@ class _BrowserState extends State<_Browser> {
         ? _results.where((f) => !widget.isSaved(f) || _keep.contains(f.extId)).toList()
         : _results;
     final allSaved = results.isEmpty && _results.isNotEmpty;
-    final chips = [
-      if (typed.isEmpty) ...[
-        AppChip(
-          kind == 'anime' ? 'Trending' : 'Hot this week',
-          selected: _mode == 'hot',
-          onPressed: () => _setMode('hot'),
-        ),
-        if (kind != 'anime')
-          AppChip('Coming soon', selected: _mode == 'upcoming', onPressed: () => _setMode('upcoming')),
-        AppChip(
-          'For you',
-          icon: Icons.auto_awesome_outlined,
-          selected: _mode == 'foryou',
-          onPressed: () => _setMode('foryou'),
-        ),
-      ],
-      GenreChip(options: genresFor(kind), value: widget.genre, onChanged: widget.onGenre),
-      if (typed.isNotEmpty)
-        AppChip(
-          'Clear search',
-          icon: Icons.close,
-          onPressed: () {
-            _text.clear();
-            setState(() {});
-            _setSearch('');
-          },
-        ),
-    ];
+    void clear() {
+      _text.clear();
+      setState(() {});
+      _setSearch('');
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       spacing: Spacing.lg,
       children: [
-        Field(
-          controller: _text,
-          icon: Icons.search,
-          hint: 'Search $plural',
-          textInputAction: TextInputAction.search,
-          onChanged: _onTyped,
-          // The keyboard's search key only puts the keyboard away; the results are already there or on their way.
-          onSubmitted: (v) {
-            FocusManager.instance.primaryFocus?.unfocus();
-            _setSearch(v.trim());
-          },
+        // Search, with the genre filter beside it: one line for "what am I looking for".
+        Row(
+          spacing: Spacing.sm,
+          children: [
+            Expanded(
+              child: Field(
+                controller: _text,
+                icon: Icons.search,
+                hint: 'Search $plural',
+                textInputAction: TextInputAction.search,
+                onChanged: _onTyped,
+                onClear: clear,
+                // The keyboard's search key only puts the keyboard away; the results are already there or on their way.
+                onSubmitted: (v) {
+                  FocusManager.instance.primaryFocus?.unfocus();
+                  _setSearch(v.trim());
+                },
+              ),
+            ),
+            GenreButton(options: genresFor(kind), value: widget.genre, onChanged: widget.onGenre),
+          ],
         ),
-        if (chips.isNotEmpty) Wrap(spacing: Spacing.sm, runSpacing: Spacing.sm, children: chips),
+        if (widget.genre != null)
+          Wrap(
+            children: [
+              AppChip(widget.genre!, icon: Icons.close, selected: true, onPressed: () => widget.onGenre(null)),
+            ],
+          ),
+        // Which list to show; a search replaces it, so it steps aside while there is text.
+        if (typed.isEmpty)
+          TextTabs<String>(
+            value: _mode,
+            onChanged: _setMode,
+            options: {
+              'hot': kind == 'anime' ? 'Trending' : 'Hot this week',
+              if (kind != 'anime') 'upcoming': 'Coming soon',
+              'foryou': 'For you',
+            },
+          ),
         if (_noTaste)
           Empty(
             icon: Icons.auto_awesome_outlined,
@@ -794,7 +793,7 @@ class _BrowserState extends State<_Browser> {
   }
 }
 
-/// One title or match found online, with its Save button.
+/// One title or match found online, with its bookmark.
 class _FoundCard extends StatelessWidget {
   const _FoundCard({
     required this.found,
@@ -844,24 +843,21 @@ class _FoundCard extends StatelessWidget {
                     dim: true,
                     maxLines: 2,
                   ),
-                  if (f.rating.isNotEmpty) T('★ ${f.rating}', variant: TextVariant.label, color: c.warn),
+                  if (f.rating.isNotEmpty)
+                    Row(
+                      spacing: 4,
+                      children: [
+                        Icon(Icons.star_rounded, size: 16, color: c.warn),
+                        Flexible(
+                          child: T(f.rating, variant: TextVariant.label, color: c.warn, maxLines: 1),
+                        ),
+                      ],
+                    ),
                   if (f.reason.isNotEmpty) T(f.reason, variant: TextVariant.small, color: c.accent, maxLines: 2),
                 ],
               ),
             ),
-            if (saved)
-              Semantics(
-                label: 'Remove ${f.title} from my list',
-                child: AppChip('Saved', icon: Icons.check, selected: true, color: c.success, onPressed: onUnsave),
-              )
-            else
-              AppButton(
-                'Save',
-                icon: Icons.bookmark_add_outlined,
-                kind: ButtonKind.soft,
-                small: true,
-                onPressed: busy ? null : onSave,
-              ),
+            _SaveToggle(title: f.title, saved: saved, onPressed: busy ? null : (saved ? onUnsave : onSave)),
           ],
         ),
       ],
@@ -1107,12 +1103,9 @@ class _FootballViewState extends State<_FootballView> {
           hint: 'Look up any team',
           textInputAction: TextInputAction.search,
           onChanged: _onTyped,
+          onClear: _clearSearch,
           onSubmitted: (_) => FocusManager.instance.primaryFocus?.unfocus(),
         ),
-        if (typed || _picked != null)
-          Wrap(
-            children: [AppChip('Clear search', icon: Icons.close, onPressed: _clearSearch)],
-          ),
         if (_picked != null) ...[
           T('${_picked!.name} · next two weeks', variant: TextVariant.label, dim: true),
           if (_loading) spinner,
@@ -1205,3 +1198,57 @@ String footballError(Object e) => e is SocketException || e is TimeoutException 
     ? 'Check your internet connection and try again.'
     : 'FotMob did not answer as expected. It is an unofficial source and may have changed, so this can last until '
           'HYETI is updated. Matches already on your calendar stay there.';
+
+/// A bookmark that saves a title to My list, or takes it back off: outlined when not saved, filled in the accent
+/// when it is. Small and the same size either way, so every card lines up.
+class _SaveToggle extends StatelessWidget {
+  const _SaveToggle({required this.title, required this.saved, required this.onPressed});
+
+  final String title;
+  final bool saved;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final label = saved ? 'Remove from my list' : 'Save to my list';
+    return Semantics(
+      button: true,
+      toggled: saved,
+      label: '$label: $title',
+      excludeSemantics: true,
+      child: Tooltip(
+        message: label,
+        child: Opacity(
+          opacity: onPressed == null ? 0.4 : 1,
+          child: Material(
+            color: saved ? c.accent.withValues(alpha: 0.16) : c.surfaceAlt,
+            shape: const CircleBorder(),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onPressed == null
+                  ? null
+                  : () {
+                      tick();
+                      onPressed!();
+                    },
+              child: SizedBox(
+                width: 44,
+                height: 44,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 150),
+                  child: Icon(
+                    saved ? Icons.bookmark : Icons.bookmark_add_outlined,
+                    key: ValueKey(saved),
+                    size: 22,
+                    color: saved ? c.accent : c.text,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

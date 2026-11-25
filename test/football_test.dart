@@ -11,7 +11,7 @@ import 'package:personal_mobile_app/main.dart';
 import 'package:personal_mobile_app/watch_api.dart' show httpClient;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'widget_test.dart' show field, openTab, settle, tapText;
+import 'widget_test.dart' show field, openTab, settle, tapText, tapTip;
 
 const tunisia = Team(6719, 'Tunisia');
 const africain = Team(102102, 'Club Africain', league: 'Ligue I');
@@ -248,7 +248,7 @@ void main() {
     // Looking a team up does not follow it.
     expect(footballPrefs().clubs, isEmpty);
 
-    await tapText(tester, 'Clear search');
+    await tapTip(tester, 'Clear search');
     expect(find.text('Arsenal vs Chelsea'), findsOneWidget);
   });
 

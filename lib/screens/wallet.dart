@@ -53,10 +53,10 @@ class _WalletScreenState extends State<WalletScreen> with Live {
   Rec _week = {};
   Rec _all = {};
   Map<String, double> _spentByDay = {};
-  List<Rec> _recent = [];
 
-  /// This month's spending by label, biggest first: (label, total). Unlabelled spending is "Other".
-  List<(String, double)> _byLabel = [];
+  /// The newest few rows; the rest are on the Transactions page, a month at a time.
+  List<Rec> _recent = [];
+  static const _recentCount = 5;
 
   /// How full the jar was at the last load, to cheer when a quarter mark is passed; null before the first load.
   double? _lastFill;
@@ -74,14 +74,7 @@ class _WalletScreenState extends State<WalletScreen> with Live {
       'GROUP BY date',
       [from, to],
     );
-    final recent = await appDb.query('SELECT * FROM transactions ORDER BY date DESC, id DESC LIMIT 60');
-    final month = monthStart(todayKey());
-    final byLabel = await appDb.query(
-      "SELECT CASE WHEN trim(label) = '' THEN 'Other' ELSE trim(label) END AS name, SUM(amount) AS total "
-      "FROM transactions WHERE kind = 'expense' AND date BETWEEN ? AND ? GROUP BY name ORDER BY total DESC",
-      [month, addDays(addMonths(month, 1), -1)],
-    );
-    _byLabel = [for (final r in byLabel) (r['name'] as String, _num(r['total']))];
+    final recent = await appDb.query('SELECT * FROM transactions ORDER BY date DESC, id DESC LIMIT $_recentCount');
     _week = week.first;
     _all = all.first;
     _spentByDay = {for (final r in byDay) r['date'] as String: _num(r['total'])};
@@ -109,15 +102,6 @@ class _WalletScreenState extends State<WalletScreen> with Live {
   String get _currency => appDb.setting('currency', r'$');
   String _money(double n) => formatMoney(n, _currency);
 
-  Color _kindColor(String kind) {
-    final c = context.colors;
-    return switch (kind) {
-      'income' => c.success,
-      'saving' => c.accent,
-      _ => c.text,
-    };
-  }
-
   void _openAdd() {
     showSheet(
       context,
@@ -141,28 +125,6 @@ class _WalletScreenState extends State<WalletScreen> with Live {
     );
   }
 
-  void _openEdit(Rec t) {
-    showSheet(
-      context,
-      title: 'Edit transaction',
-      builder: (sheet) => _TxForm(
-        initial: t,
-        money: _money,
-        onSave: (kind, amount, label, date, fromWallet) async {
-          await appDb.run(
-            'UPDATE transactions SET date = ?, kind = ?, amount = ?, label = ?, from_wallet = ? WHERE id = ?',
-            [date, kind, amount, label, fromWallet ? 1 : 0, t['id']],
-          );
-          if (sheet.mounted) Navigator.pop(sheet);
-        },
-        onDelete: () async {
-          await deleteWithUndo('transactions', t, 'Deleted ${_money(_num(t['amount']))}');
-          if (sheet.mounted) Navigator.pop(sheet);
-        },
-      ),
-    );
-  }
-
   void _openGoal() {
     showSheet(
       context,
@@ -179,6 +141,11 @@ class _WalletScreenState extends State<WalletScreen> with Live {
     );
   }
 
+  void _openHistory() {
+    tick();
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const _HistoryPage()));
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
@@ -193,57 +160,42 @@ class _WalletScreenState extends State<WalletScreen> with Live {
     final daysLeft = 7 - daysBetween(weekFrom, today);
     final weekLeft = weekIncome - weekSpent - _num(_week['moved']);
 
-    // Recent transactions, grouped under their day.
-    final groups = <String, List<Rec>>{};
-    for (final t in _recent) {
-      (groups[t['date'] as String] ??= []).add(t);
-    }
-
     return Screen(
       title: 'Wallet',
       fabLabel: 'Add',
       onFab: _openAdd,
       children: [
-        // The wallet comes first and on its own card, so it is never mistaken for the jar below.
-        AppCard(
-          spacing: Spacing.xs,
-          children: [
-            Row(
-              spacing: Spacing.sm,
-              children: [
-                Icon(Icons.account_balance_wallet_outlined, size: 18, color: c.accent),
-                const Expanded(child: T('IN YOUR WALLET', variant: TextVariant.label, dim: true)),
-              ],
-            ),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: T(
-                _money(available),
-                key: const Key('wallet-balance'),
-                variant: TextVariant.number,
-                color: available < 0 ? c.danger : null,
-                style: const TextStyle(fontSize: 40),
-                maxLines: 1,
-              ),
-            ),
-            T(
-              available < 0
-                  ? 'You have spent more than you logged coming in.'
-                  : 'Money you can spend. The savings jar is separate.',
-              variant: TextVariant.small,
-              dim: true,
-            ),
-          ],
-        ),
+        // What can be spent, and how this week is going, read top to bottom on one card.
         AppCard(
           spacing: Spacing.md,
           children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              spacing: 2,
+              children: [
+                const T('IN YOUR WALLET', variant: TextVariant.label, dim: true),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: T(
+                    _money(available),
+                    key: const Key('wallet-balance'),
+                    variant: TextVariant.number,
+                    color: available < 0 ? c.danger : null,
+                    style: const TextStyle(fontSize: 40),
+                    maxLines: 1,
+                  ),
+                ),
+                if (available < 0)
+                  T('You have spent more than you logged coming in.', variant: TextVariant.small, color: c.danger),
+              ],
+            ),
+            Divider(height: 1, thickness: 0.5, color: c.border),
             const T('THIS WEEK', variant: TextVariant.label, dim: true),
             Row(
               spacing: Spacing.md,
               children: [
-                _Stat(label: 'Income', value: _money(weekIncome), color: c.success),
+                _Stat(label: 'Income', value: _money(weekIncome), color: weekIncome > 0 ? c.success : null),
                 _Stat(label: 'Spent', value: _money(weekSpent)),
                 _Stat(label: 'Today', value: _money(_spentByDay[today] ?? 0)),
               ],
@@ -254,35 +206,29 @@ class _WalletScreenState extends State<WalletScreen> with Live {
               ProgressBar(weekSpent / weekIncome, color: weekSpent > weekIncome ? c.danger : c.accent),
               T(
                 weekLeft >= 0
-                    ? '${_money(weekLeft)} left — about ${_money(weekLeft / daysLeft)} a day for $daysLeft more '
-                          '${daysLeft == 1 ? 'day' : 'days'}'
+                    ? '${_money(weekLeft)} left · about ${_money(weekLeft / daysLeft)} a day'
                     : "${_money(-weekLeft)} over this week's income",
                 variant: TextVariant.small,
                 color: weekLeft >= 0 ? c.textDim : c.danger,
               ),
-            ] else
-              const T(
-                "Add this week's income to see how much you can spend per day.",
-                variant: TextVariant.small,
-                dim: true,
-              ),
+            ],
           ],
         ),
-        if (_byLabel.isNotEmpty) _SpendingBreakdown(byLabel: _byLabel, money: _money),
         AppCard(
+          spacing: Spacing.md,
           children: [
             Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
               spacing: Spacing.lg,
               children: [
                 SavingsJar(
+                  width: 72,
                   fill: jarFill(saved, goal == null ? null : _num(goal['target'])),
                   onTap: () => openJarDrop(context, money: _money),
                 ),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    spacing: Spacing.xs,
+                    spacing: 2,
                     children: [
                       Row(
                         children: [
@@ -303,7 +249,7 @@ class _WalletScreenState extends State<WalletScreen> with Live {
                               onTap: () => openJarInfo(context),
                               child: Padding(
                                 padding: const EdgeInsets.all(4),
-                                child: Icon(Icons.info_outline, size: 20, color: c.textDim),
+                                child: Icon(Icons.info_outline, size: 18, color: c.textDim),
                               ),
                             ),
                           ),
@@ -314,15 +260,15 @@ class _WalletScreenState extends State<WalletScreen> with Live {
                         alignment: Alignment.centerLeft,
                         child: T(_money(saved), variant: TextVariant.number, maxLines: 1),
                       ),
-                      T(
-                        goal != null
-                            ? '${(jarFill(saved, _num(goal['target'])) * 100).round()}% of ${_money(_num(goal['target']))}'
-                            : 'Set a goal and watch the jar fill up.',
-                        variant: TextVariant.small,
-                        dim: true,
-                      ),
-                      if (goal != null) T(_goalHint(goal, saved), variant: TextVariant.small, dim: true),
-                      T('Kept apart from your wallet', variant: TextVariant.small, color: c.textDim),
+                      if (goal != null) ...[
+                        T(
+                          '${(jarFill(saved, _num(goal['target'])) * 100).round()}% of ${_money(_num(goal['target']))}',
+                          variant: TextVariant.small,
+                          dim: true,
+                        ),
+                        T(_goalHint(goal, saved), variant: TextVariant.small, dim: true),
+                      ] else
+                        const T('Set a goal and watch the jar fill up.', variant: TextVariant.small, dim: true),
                     ],
                   ),
                 ),
@@ -334,8 +280,7 @@ class _WalletScreenState extends State<WalletScreen> with Live {
                 Expanded(
                   child: AppButton(
                     'Drop in',
-                    icon: Icons.savings_outlined,
-                    fill: c.success,
+                    icon: Icons.add,
                     small: true,
                     onPressed: () => openJarDrop(context, money: _money),
                   ),
@@ -343,8 +288,8 @@ class _WalletScreenState extends State<WalletScreen> with Live {
                 Expanded(
                   child: AppButton(
                     'Take out',
-                    icon: Icons.outbox_outlined,
-                    fill: c.danger,
+                    icon: Icons.remove,
+                    kind: ButtonKind.soft,
                     small: true,
                     onPressed: saved > 0 ? () => openJarTakeOut(context, saved: saved, money: _money) : null,
                   ),
@@ -366,77 +311,22 @@ class _WalletScreenState extends State<WalletScreen> with Live {
           const Empty(
             icon: Icons.receipt_long_outlined,
             title: 'No transactions yet',
-            hint: 'Tap “Add” to log income or spending. Money you put aside goes in the jar.',
-          ),
-        for (final g in groups.entries)
+            hint: 'Tap Add to log what comes in and goes out.',
+          )
+        else if (_recent.isNotEmpty)
           Section(
-            title: relativeDay(g.key),
-            right: T(_dayTotal(g.value), variant: TextVariant.small, dim: true),
+            title: 'Recent',
+            right: _LinkButton('See all', onTap: _openHistory),
             children: [
               AppCard(
                 spacing: 0,
                 padding: listCardPadding,
-                children: [for (final (i, t) in g.value.indexed) _txRow(t, divider: i > 0)],
+                children: [
+                  for (final (i, t) in _recent.indexed) _TxRow(t, money: _money, showDay: true, divider: i > 0),
+                ],
               ),
             ],
           ),
-      ],
-    );
-  }
-
-  /// What the day did to the money available: income minus spending and savings.
-  String _dayTotal(List<Rec> txs) {
-    var net = 0.0;
-    for (final t in txs) {
-      // Income and money taken out of the jar come into the wallet; spending and money moved to the jar leave it.
-      // New money dropped straight into the jar never touches the wallet.
-      net += switch (t['kind']) {
-        'income' || 'withdraw' => _num(t['amount']),
-        'saving' when t['from_wallet'] == 0 => 0,
-        _ => -_num(t['amount']),
-      };
-    }
-    return '${net >= 0 ? '+' : '−'}${_money(net.abs())}';
-  }
-
-  Widget _txRow(Rec t, {required bool divider}) {
-    final c = context.colors;
-    final kind = t['kind'] as String;
-    final label = t['label'] as String;
-    final kindText = kind == 'saving'
-        ? (t['from_wallet'] == 0 ? 'Into the jar · new money' : 'Into the jar · from wallet')
-        : _rowLabel[kind]!;
-    final sign = switch (kind) {
-      'income' || 'withdraw' => '+',
-      'expense' => '−',
-      _ => '',
-    };
-    final (icon, tint) = switch (kind) {
-      'income' => (Icons.south_west, c.success),
-      'saving' => (Icons.savings_outlined, c.accent),
-      'withdraw' => (Icons.outbox_outlined, c.warn),
-      _ => (Icons.north_east, c.textDim),
-    };
-    return ListRow(
-      divider: divider,
-      onTap: () => _openEdit(t),
-      children: [
-        Container(
-          width: 36,
-          height: 36,
-          decoration: BoxDecoration(color: tint.withValues(alpha: 0.14), shape: BoxShape.circle),
-          child: Icon(icon, size: 18, color: tint),
-        ),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              T(label.isNotEmpty ? label : _rowLabel[kind]!, maxLines: 1),
-              if (label.isNotEmpty || kind == 'saving') T(kindText, variant: TextVariant.small, dim: true),
-            ],
-          ),
-        ),
-        T('$sign${_money(_num(t['amount']))}', variant: TextVariant.heading, color: _kindColor(kind)),
       ],
     );
   }
@@ -449,7 +339,270 @@ class _WalletScreenState extends State<WalletScreen> with Live {
     final days = daysBetween(todayKey(), deadline);
     if (days <= 0) return '${_money(left)} to go — the target date has passed.';
     final weeks = math.max(1, (days / 7).ceil());
-    return '${_money(left)} to go — ${_money(left / weeks)} a week for $weeks ${weeks == 1 ? 'week' : 'weeks'}.';
+    return '${_money(left)} to go · ${_money(left / weeks)} a week';
+  }
+}
+
+/// Opens the sheet that edits or deletes one transaction.
+void _openEdit(BuildContext context, Rec t, String Function(double) money) {
+  showSheet(
+    context,
+    title: 'Edit transaction',
+    builder: (sheet) => _TxForm(
+      initial: t,
+      money: money,
+      onSave: (kind, amount, label, date, fromWallet) async {
+        await appDb.run(
+          'UPDATE transactions SET date = ?, kind = ?, amount = ?, label = ?, from_wallet = ? WHERE id = ?',
+          [date, kind, amount, label, fromWallet ? 1 : 0, t['id']],
+        );
+        if (sheet.mounted) Navigator.pop(sheet);
+      },
+      onDelete: () async {
+        await deleteWithUndo('transactions', t, 'Deleted ${money(_num(t['amount']))}');
+        if (sheet.mounted) Navigator.pop(sheet);
+      },
+    ),
+  );
+}
+
+/// What a set of rows did to the money available, signed: income minus spending and savings.
+String _netText(List<Rec> txs, String Function(double) money) {
+  var net = 0.0;
+  for (final t in txs) {
+    // Income and money taken out of the jar come into the wallet; spending and money moved to the jar leave it.
+    // New money dropped straight into the jar never touches the wallet.
+    net += switch (t['kind']) {
+      'income' || 'withdraw' => _num(t['amount']),
+      'saving' when t['from_wallet'] == 0 => 0,
+      _ => -_num(t['amount']),
+    };
+  }
+  return '${net >= 0 ? '+' : '−'}${money(net.abs())}';
+}
+
+/// A small accent-coloured text button for a section header, such as "See all".
+class _LinkButton extends StatelessWidget {
+  const _LinkButton(this.label, {required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Semantics(
+      button: true,
+      label: label,
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(Radii.button),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: Spacing.sm, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              T(label, variant: TextVariant.label, color: c.accent),
+              Icon(Icons.chevron_right, size: 18, color: c.accent),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One transaction in a list: what it was, a quiet second line, and the amount. Tap to edit.
+class _TxRow extends StatelessWidget {
+  const _TxRow(this.t, {required this.money, required this.divider, this.showDay = false});
+
+  final Rec t;
+  final String Function(double) money;
+  final bool divider;
+
+  /// Puts the day in the second line, for lists that are not grouped under their days.
+  final bool showDay;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final kind = t['kind'] as String;
+    final label = (t['label'] as String).trim();
+    final title = label.isNotEmpty ? label : _rowLabel[kind]!;
+    // Spending is the usual case and needs no word; the others say what they were.
+    final detail = switch (kind) {
+      'saving' => [if (label.isNotEmpty) 'Into the jar', t['from_wallet'] == 0 ? 'New money' : 'From wallet'],
+      'withdraw' => [if (label.isNotEmpty) 'From the jar'],
+      'income' => [if (label.isNotEmpty) 'Income'],
+      _ => <String>[],
+    };
+    final second = [...detail, if (showDay) relativeDay(t['date'] as String)].join(' · ');
+    final sign = switch (kind) {
+      'income' || 'withdraw' => '+',
+      'expense' => '−',
+      _ => '',
+    };
+    final (icon, tint) = switch (kind) {
+      'income' => (Icons.south_west, c.success),
+      'saving' => (Icons.savings_outlined, c.accent),
+      'withdraw' => (Icons.outbox_outlined, c.warn),
+      _ => (Icons.north_east, c.textDim),
+    };
+    final amountColor = switch (kind) {
+      'income' => c.success,
+      'saving' => c.accent,
+      _ => c.text,
+    };
+    return ListRow(
+      divider: divider,
+      onTap: () => _openEdit(context, t, money),
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(color: tint.withValues(alpha: 0.14), shape: BoxShape.circle),
+          child: Icon(icon, size: 18, color: tint),
+        ),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              T(title, maxLines: 1),
+              if (second.isNotEmpty) T(second, variant: TextVariant.small, dim: true, maxLines: 1),
+            ],
+          ),
+        ),
+        T(
+          '$sign${money(_num(t['amount']))}',
+          variant: TextVariant.label,
+          color: amountColor,
+          style: const TextStyle(fontSize: 15, fontFeatures: [FontFeature.tabularFigures()]),
+        ),
+      ],
+    );
+  }
+}
+
+/// Every transaction, a month at a time: the month's money in and out, then each day's rows under it.
+class _HistoryPage extends StatefulWidget {
+  const _HistoryPage();
+
+  @override
+  State<_HistoryPage> createState() => _HistoryPageState();
+}
+
+class _HistoryPageState extends State<_HistoryPage> with Live {
+  String _month = monthStart(todayKey());
+
+  /// 'all', 'out' (spending and money put in the jar) or 'in' (income and money taken out of the jar).
+  String _filter = 'all';
+  List<Rec> _rows = [];
+
+  String _money(double n) => formatMoney(n, appDb.setting('currency', r'$'));
+
+  @override
+  Future<void> load() async {
+    final month = _month;
+    final rows = await appDb.query(
+      'SELECT * FROM transactions WHERE date BETWEEN ? AND ? ORDER BY date DESC, id DESC',
+      [month, addDays(addMonths(month, 1), -1)],
+    );
+    if (month != _month) return;
+    _rows = rows;
+  }
+
+  void _step(int dir) {
+    tick();
+    setState(() => _month = addMonths(_month, dir));
+    reload();
+  }
+
+  bool _shown(Rec t) => switch (_filter) {
+    'out' => t['kind'] == 'expense' || t['kind'] == 'saving',
+    'in' => t['kind'] == 'income' || t['kind'] == 'withdraw',
+    _ => true,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final atLatest = _month == monthStart(todayKey());
+    var moneyIn = 0.0, moneyOut = 0.0;
+    for (final t in _rows) {
+      final n = _num(t['amount']);
+      switch (t['kind']) {
+        case 'income':
+          moneyIn += n;
+        case 'expense':
+          moneyOut += n;
+      }
+    }
+    final groups = <String, List<Rec>>{};
+    for (final t in _rows.where(_shown)) {
+      (groups[t['date'] as String] ??= []).add(t);
+    }
+
+    return Scaffold(
+      body: Screen(
+        title: 'Transactions',
+        onBack: () => Navigator.of(context).pop(),
+        children: [
+          Row(
+            spacing: Spacing.md,
+            children: [
+              HeaderIcon(Icons.chevron_left, label: 'Previous month', onPressed: () => _step(-1)),
+              Expanded(
+                child: T(formatMonth(_month), variant: TextVariant.heading, align: TextAlign.center),
+              ),
+              // Months to come have nothing in them yet.
+              Opacity(
+                opacity: atLatest ? 0.3 : 1,
+                child: IgnorePointer(
+                  ignoring: atLatest,
+                  child: HeaderIcon(Icons.chevron_right, label: 'Next month', onPressed: () => _step(1)),
+                ),
+              ),
+            ],
+          ),
+          AppCard(
+            children: [
+              Row(
+                spacing: Spacing.md,
+                children: [
+                  _Stat(label: 'Money in', value: _money(moneyIn), color: moneyIn > 0 ? c.success : null),
+                  _Stat(label: 'Money out', value: _money(moneyOut)),
+                  _Stat(label: 'Net', value: _netText(_rows, _money)),
+                ],
+              ),
+            ],
+          ),
+          Segmented<String>(
+            value: _filter,
+            onChanged: (v) => setState(() => _filter = v),
+            options: const {'all': 'All', 'out': 'Out', 'in': 'In'},
+          ),
+          if (ready && groups.isEmpty)
+            AppCard(
+              center: true,
+              padding: const EdgeInsets.symmetric(horizontal: Spacing.lg, vertical: Spacing.xl),
+              children: [T('Nothing in ${formatMonth(_month)}.', dim: true, align: TextAlign.center)],
+            ),
+          for (final g in groups.entries)
+            Section(
+              title: relativeDay(g.key),
+              right: T(_netText(g.value, _money), variant: TextVariant.small, dim: true),
+              children: [
+                AppCard(
+                  spacing: 0,
+                  padding: listCardPadding,
+                  children: [for (final (i, t) in g.value.indexed) _TxRow(t, money: _money, divider: i > 0)],
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
   }
 }
 
@@ -944,61 +1097,6 @@ class _GoalFormState extends State<_GoalForm> {
         AppButton('Save goal', onPressed: _save),
         if (widget.goal != null)
           AppButton('Remove goal', kind: ButtonKind.danger, onPressed: () => widget.onSave(null, _currency)),
-      ],
-    );
-  }
-}
-
-/// Where this month's money went, by the label each expense was given: the five biggest, then the rest together.
-class _SpendingBreakdown extends StatelessWidget {
-  const _SpendingBreakdown({required this.byLabel, required this.money});
-
-  final List<(String, double)> byLabel;
-  final String Function(double) money;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    final total = byLabel.fold(0.0, (sum, e) => sum + e.$2);
-    final rows = byLabel.length <= 6
-        ? byLabel
-        : [...byLabel.take(5), ('Everything else', byLabel.skip(5).fold(0.0, (sum, e) => sum + e.$2))];
-    return AppCard(
-      spacing: Spacing.md,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: T(
-                'WHERE IT WENT · ${formatMonth(todayKey()).toUpperCase()}',
-                variant: TextVariant.label,
-                dim: true,
-                maxLines: 1,
-              ),
-            ),
-            T(money(total), variant: TextVariant.label),
-          ],
-        ),
-        for (final (name, amount) in rows)
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            spacing: 4,
-            children: [
-              Row(
-                children: [
-                  Expanded(child: T(name, maxLines: 1)),
-                  T(money(amount), variant: TextVariant.small, dim: true),
-                ],
-              ),
-              ProgressBar(total > 0 ? amount / total : 0, color: c.accent),
-            ],
-          ),
-        if (byLabel.any((e) => e.$1 == 'Other'))
-          const T(
-            'Give expenses a label, like Groceries or Transport, to see them apart.',
-            variant: TextVariant.small,
-            dim: true,
-          ),
       ],
     );
   }

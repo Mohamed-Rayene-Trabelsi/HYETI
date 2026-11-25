@@ -76,25 +76,5 @@ void main() {
       await settle(tester);
       expect(find.textContaining('Rest '), findsNothing);
     });
-
-    testWidgets('the wallet shows where this month\'s money went, by label', (tester) async {
-      final today = todayKey();
-      await tester.runAsync(() async {
-        for (final (amount, label) in [(40.0, 'Groceries'), (25.0, 'Groceries'), (30.0, 'Transport'), (5.0, '')]) {
-          await appDb.insert("INSERT INTO transactions (date, kind, amount, label) VALUES (?, 'expense', ?, ?)", [
-            today,
-            amount,
-            label,
-          ]);
-        }
-      });
-      await start(tester);
-      await openTab(tester, 'Wallet');
-      expect(find.textContaining('WHERE IT WENT'), findsOneWidget);
-      expect(find.text(r'$65'), findsOneWidget);
-      expect(find.text(r'$30'), findsOneWidget);
-      expect(find.text('Other'), findsOneWidget);
-      expect(find.textContaining('Give expenses a label'), findsOneWidget);
-    });
   });
 }

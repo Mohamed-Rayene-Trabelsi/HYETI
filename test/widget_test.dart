@@ -37,6 +37,12 @@ Future<void> tapText(WidgetTester tester, String text) async {
   await settle(tester);
 }
 
+/// Taps the touchable button with this tooltip: the icon-only buttons (save, clear search) are found this way.
+Future<void> tapTip(WidgetTester tester, String message) async {
+  await tester.tap(find.byTooltip(message).hitTestable().last);
+  await settle(tester);
+}
+
 Finder field(int index) => find.byType(TextField).hitTestable().at(index);
 
 /// A week of repeating blocks, as someone might set up: lunch, dinner and gaming every day, work and gym some days.
@@ -84,7 +90,7 @@ void main() {
       ('Wallet', 'THIS WEEK'),
       ('Watch', 'Your list is empty'),
       ('Notes', 'No notes yet'),
-      ('Calendar', 'Plan your days'),
+      ('Calendar', 'Nothing planned'),
     ]) {
       await openTab(tester, tab);
       expect(find.text(marker).hitTestable(), findsOneWidget, reason: tab);
@@ -96,7 +102,7 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.arrow_back));
     await settle(tester);
-    expect(find.text('Plan your days').hitTestable(), findsOneWidget);
+    expect(find.text('Nothing planned').hitTestable(), findsOneWidget);
   });
 
   testWidgets('swiping sideways moves between tabs', (tester) async {
@@ -127,7 +133,7 @@ void main() {
     await start(tester);
     await addRoutine(tester);
 
-    expect(find.text('Plan your days'), findsNothing);
+    expect(find.text('Nothing planned'), findsNothing);
     final today = await tester.runAsync(() => appDb.query('SELECT * FROM events WHERE date = ?', [todayKey()]));
     // Lunch, dinner and gaming run every day; work and gym depend on the weekday.
     expect(today!.length, greaterThanOrEqualTo(3));
@@ -140,23 +146,6 @@ void main() {
     expect(find.text('Week'), findsNothing);
     await tapText(tester, 'Month');
     expect(find.text(formatMonth(todayKey())), findsOneWidget);
-  });
-
-  testWidgets('quick setup adds one repeating block after another from the same sheet', (tester) async {
-    await start(tester);
-    await tapText(tester, 'Quick setup');
-    for (final name in ['Gym', 'Lunch']) {
-      await tester.enterText(field(0), name);
-      await settle(tester);
-      await tapText(tester, 'Add to calendar');
-    }
-    expect(find.text('Added Lunch. Add another, or close when you are done.'), findsOneWidget);
-
-    final routines = await tester.runAsync(() => appDb.query('SELECT * FROM routines ORDER BY id'));
-    expect([for (final r in routines!) r['title']], ['Gym', 'Lunch']);
-    // The name picked the icon, and each repeats on the weekday it was set up on.
-    expect([for (final r in routines) r['category']], ['gym', 'food']);
-    expect(routines.first['days'], '${weekdayOf(todayKey())}');
   });
 
   testWidgets('a repeating block can be removed from every week, and put back', (tester) async {
@@ -253,7 +242,7 @@ void main() {
     await start(tester);
     await openTab(tester, 'Watch');
     expect(find.byIcon(Icons.key_outlined), findsNothing);
-    await tapText(tester, 'Shows');
+    await tapText(tester, 'Movies');
     expect(find.text('Add OMDb key'), findsNothing);
     expect(find.text('A free key is needed'), findsNothing);
   });
@@ -299,7 +288,7 @@ void main() {
     await tapText(tester, '+\$50');
     await tapText(tester, 'New money');
     expect(shownBalance(tester), r'$80', reason: 'a gift put straight in the jar never was in the wallet');
-    expect(find.text('Into the jar · new money'), findsOneWidget);
+    expect(find.text('New money · Today'), findsOneWidget);
 
     // Backing out of the question puts nothing in.
     await tapText(tester, 'Drop in');
@@ -363,6 +352,32 @@ void main() {
     expect(shownBalance(tester), r'$1,500');
     final rows = await tester.runAsync(() => appDb.query('SELECT * FROM transactions'));
     expect(rows, hasLength(1));
+  });
+
+  testWidgets('the wallet shows the latest few rows, and "See all" lists the month', (tester) async {
+    await start(tester);
+    await tester.runAsync(() async {
+      for (var i = 1; i <= 8; i++) {
+        await appDb.insert("INSERT INTO transactions (date, kind, amount, label) VALUES (?, 'expense', ?, ?)", [
+          todayKey(),
+          i,
+          'Item $i',
+        ]);
+      }
+    });
+    await openTab(tester, 'Wallet');
+    expect(find.text('Item 8'), findsOneWidget);
+    expect(find.text('Item 3'), findsNothing, reason: 'only the five newest are on the Wallet tab');
+    expect(find.textContaining('WHERE IT WENT'), findsNothing);
+
+    await tapText(tester, 'See all');
+    expect(find.text('Transactions'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Item 1'), 200, scrollable: find.byType(Scrollable).last);
+    expect(find.text('Item 1'), findsOneWidget);
+
+    await tapText(tester, 'In');
+    expect(find.text('Item 1'), findsNothing);
+    expect(find.text('Nothing in ${formatMonth(todayKey())}.'), findsOneWidget);
   });
 
   testWidgets('scanning a receipt fills in the transaction', (tester) async {

@@ -125,7 +125,6 @@ class _CalendarScreenState extends State<CalendarScreen> with Live {
 
   List<Rec> _events = [];
   List<String> _offDates = [];
-  List<Rec> _routines = [];
 
   // Weeks run Monday to Sunday.
   String get _firstDay => 'mon';
@@ -174,7 +173,6 @@ class _CalendarScreenState extends State<CalendarScreen> with Live {
     final off = await appDb.query('SELECT date FROM day_offs WHERE date BETWEEN ? AND ?', [from, to]);
     // Days off are the weekdays chosen in Settings, plus single dates (holidays) added there.
     final weekly = offWeekdays();
-    final routines = await appDb.query('SELECT * FROM routines ORDER BY start_min, id');
     // The user moved on while this was loading; a newer load is on its way.
     if (from != _from || to != _to) return;
     _events = events;
@@ -183,7 +181,6 @@ class _CalendarScreenState extends State<CalendarScreen> with Live {
       for (final d in dateRange(from, to))
         if (weekly.contains(weekdayOf(d))) d,
     ];
-    _routines = routines;
   }
 
   void _go({String? date, String? view}) {
@@ -228,16 +225,6 @@ class _CalendarScreenState extends State<CalendarScreen> with Live {
           if (v.days == null && v.date != _date) _go(date: v.date);
         },
       ),
-    );
-  }
-
-  /// The same sheet as "Add", set to repeat every week, and kept open to add one thing after another.
-  void _openQuickSetup() {
-    showSheet(
-      context,
-      title: 'Quick setup',
-      builder: (sheet) =>
-          BlockForm(repeat: 'choose', repeatByDefault: true, again: true, date: _date, onSave: _addBlock),
     );
   }
 
@@ -323,8 +310,6 @@ class _CalendarScreenState extends State<CalendarScreen> with Live {
     final doneCount = dayBlocks.where((e) => e['done'] == 1).length;
     final isToday = date == today;
     final now = nowMinutes();
-    // First run: nothing set up yet. Checked only once the data has loaded, so it never flashes.
-    final needsSetup = ready && _routines.isEmpty && _events.isEmpty;
 
     final relative = relativeDay(date);
     final named = relative != formatDay(date);
@@ -404,13 +389,6 @@ class _CalendarScreenState extends State<CalendarScreen> with Live {
               _NavArrow(icon: Icons.chevron_right, hint: 'Next month', onTap: () => _step(1)),
             ],
           ),
-        if (needsSetup)
-          Empty(
-            icon: Icons.event_repeat,
-            title: 'Plan your days',
-            hint: 'Add what you do, like gym, meals or classes. Make it repeat every week and it fills in by itself.',
-            action: AppButton('Quick setup', icon: Icons.bolt, onPressed: _openQuickSetup),
-          ),
         if (_view == 'month')
           MonthGrid(
             firstCell: _gridFrom,
@@ -425,26 +403,17 @@ class _CalendarScreenState extends State<CalendarScreen> with Live {
             },
           ),
         // Day and month views share the same summary and list for the chosen day.
-        if (!needsSetup) ...[
-          _DayCard(
+        _DayCard(blocks: dayBlocks, doneCount: doneCount, isToday: isToday, isOff: isOff, now: now, onToggle: _toggle),
+        if (isToday && dayBlocks.isNotEmpty && ReminderOffer.due) const ReminderOffer(),
+        if (ready)
+          _Agenda(
             blocks: dayBlocks,
-            doneCount: doneCount,
-            isToday: isToday,
-            isOff: isOff,
-            now: now,
+            now: isToday ? now : null,
+            emptyText: isOff ? 'Day off' : 'Nothing planned',
+            onEdit: _openEdit,
             onToggle: _toggle,
+            onAddAt: (start) => _openNew(start: start),
           ),
-          if (isToday && dayBlocks.isNotEmpty && ReminderOffer.due) const ReminderOffer(),
-          if (ready)
-            _Agenda(
-              blocks: dayBlocks,
-              now: isToday ? now : null,
-              emptyText: isOff ? 'Day off — nothing planned.' : 'Nothing planned. Tap “Add” to put something here.',
-              onEdit: _openEdit,
-              onToggle: _toggle,
-              onAddAt: (start) => _openNew(start: start),
-            ),
-        ],
       ],
     );
   }
@@ -637,7 +606,18 @@ class _Agenda extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (blocks.isEmpty) {
-      return AppCard(center: true, children: [T(emptyText, dim: true, align: TextAlign.center)]);
+      final c = context.colors;
+      return AppCard(
+        center: true,
+        spacing: Spacing.xs,
+        padding: const EdgeInsets.symmetric(horizontal: Spacing.lg, vertical: Spacing.xl),
+        children: [
+          Icon(Icons.event_available_outlined, size: 28, color: c.textDim),
+          const SizedBox(height: Spacing.xs),
+          T(emptyText, variant: TextVariant.heading, align: TextAlign.center),
+          const T('Tap Add to plan something.', variant: TextVariant.small, dim: true, align: TextAlign.center),
+        ],
+      );
     }
 
     final rows = <Widget>[];
@@ -932,10 +912,8 @@ class BlockForm extends StatefulWidget {
     this.start,
     this.date,
     required this.repeat,
-    this.repeatByDefault = false,
     required this.onSave,
     this.actions = const [],
-    this.again = false,
   });
 
   /// An events or routines row to edit.
@@ -949,14 +927,10 @@ class BlockForm extends StatefulWidget {
 
   /// 'choose' lets the user pick once or every week; 'always' / 'never' fix it.
   final String repeat;
-  final bool repeatByDefault;
   final Future<void> Function(BlockValues) onSave;
 
   /// More buttons under Save, such as the ways to remove the block.
   final List<Widget> actions;
-
-  /// Stays open after saving, emptied for the next block: the quick setup adds several in a row.
-  final bool again;
 
   @override
   State<BlockForm> createState() => _BlockFormState();
@@ -981,15 +955,12 @@ class _BlockFormState extends State<BlockForm> {
 
   /// Kept for blocks saved before the "running late" buffer was taken out; no longer shown.
   late final int _flex = widget.initial?['flex_min'] as int? ?? 15;
-  late bool _repeats = widget.repeat == 'always' || (widget.repeat == 'choose' && widget.repeatByDefault);
+  late bool _repeats = widget.repeat == 'always';
   late List<int> _days = switch (widget.initial?['days']) {
     final String days when days.isNotEmpty => days.split(',').map(int.parse).toList(),
     _ => [weekdayOf(_date)],
   };
   String _error = '';
-
-  /// After a quick-setup save: what was just added.
-  String _added = '';
   bool _saving = false;
 
   /// The next full hour today, or nine in the morning on any other day.
@@ -1030,18 +1001,7 @@ class _BlockFormState extends State<BlockForm> {
         date: _date,
       ),
     );
-    if (!mounted) return;
-    setState(() {
-      _saving = false;
-      if (widget.again) {
-        // Ready for the next one: same day and time, nothing else carried over.
-        _title.clear();
-        _category = 'other';
-        _iconChosen = false;
-        _iconsOpen = false;
-        _added = 'Added $title. Add another, or close when you are done.';
-      }
-    });
+    if (mounted) setState(() => _saving = false);
   }
 
   Widget _label(String text) => T(text, variant: TextVariant.label, dim: true);
@@ -1186,7 +1146,6 @@ class _BlockFormState extends State<BlockForm> {
     final c = context.colors;
     return FormColumn(
       children: [
-        if (_added.isNotEmpty) T(_added, variant: TextVariant.small, color: c.success),
         Row(
           spacing: Spacing.sm,
           children: [

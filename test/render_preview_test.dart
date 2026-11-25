@@ -228,12 +228,29 @@ void main() {
         "INSERT INTO transactions (date, kind, amount, label) VALUES (?, 'income', 900, 'Pay'), (?, 'saving', 380, '')",
         [todayKey(), todayKey()],
       );
+      for (final (days, amount, label) in [
+        (0, 12.4, 'Lunch'),
+        (-1, 54.0, 'Groceries'),
+        (-1, 8.5, 'Transport'),
+        (-2, 23.0, 'Going out'),
+      ]) {
+        await appDb.run("INSERT INTO transactions (date, kind, amount, label) VALUES (?, 'expense', ?, ?)", [
+          addDays(todayKey(), days),
+          amount,
+          label,
+        ]);
+      }
     });
     await openTab(tester, 'Wallet');
     // The seeded savings pass half the goal, which is cheered; the picture is of the jar, not the message.
     messengerKey.currentState?.hideCurrentSnackBar();
     await settle(tester);
     await snap(tester, 'wallet');
+    await tester.tap(find.text('See all').hitTestable());
+    await settle(tester);
+    await snap(tester, 'wallet_history');
+    await tester.tap(find.byIcon(Icons.arrow_back).hitTestable());
+    await settle(tester);
     await tester.tap(find.text('Take out').hitTestable());
     await settle(tester);
     await tester.tap(find.text('−\$20').hitTestable());
@@ -266,9 +283,15 @@ void main() {
     await settle(tester);
 
     await openTab(tester, 'Watch');
-    await tester.tap(find.text('Shows'));
+    await tester.tap(find.text('Movies').hitTestable());
     await settle(tester);
     await snap(tester, 'watch_shows');
+    // A saved title on My list, with its two buttons.
+    await tester.tap(find.byTooltip('Save to my list').hitTestable().first);
+    await settle(tester);
+    await tester.tap(find.text('My list').hitTestable());
+    await settle(tester);
+    await snap(tester, 'watch_mine');
     await tester.tap(find.text('Football').hitTestable());
     await settle(tester);
     await snap(tester, 'football_welcome');
@@ -288,7 +311,7 @@ void main() {
     await settle(tester);
     await tester.tap(find.text('Done').hitTestable());
     await settle(tester);
-    await tester.tap(find.text('Save').hitTestable().first);
+    await tester.tap(find.byTooltip('Save to my list').hitTestable().first);
     await settle(tester);
     await snap(tester, 'watch_football');
     await openTab(tester, 'Body');

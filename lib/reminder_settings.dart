@@ -97,36 +97,41 @@ class _ReminderOfferState extends State<ReminderOffer> {
     await appDb.setSetting('reminder_asked', true);
   }
 
+  /// One slim row rather than a big card: a bell, the question, "Turn on", and an × that says no.
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     return AppCard(
+      padding: const EdgeInsets.fromLTRB(Spacing.md, Spacing.sm, Spacing.xs, Spacing.sm),
+      spacing: Spacing.xs,
       children: [
         Row(
           spacing: Spacing.sm,
           children: [
             Icon(Icons.notifications_active_outlined, color: c.accent, size: 20),
-            const Expanded(child: T('Get a reminder before each block?', variant: TextVariant.label)),
-          ],
-        ),
-        const T('10 minutes before it starts. Change it any time in Settings → Reminders.', dim: true),
-        if (_note.isNotEmpty) T(_note, color: c.danger),
-        Row(
-          spacing: Spacing.sm,
-          children: [
-            Expanded(
-              child: AppButton(
-                'No thanks',
-                kind: ButtonKind.soft,
-                small: true,
-                onPressed: () => appDb.setSetting('reminder_asked', true),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  T('Get a reminder before each block?', variant: TextVariant.label, maxLines: 2),
+                  T('10 minutes before. Change it in Settings.', variant: TextVariant.small, dim: true, maxLines: 1),
+                ],
               ),
             ),
-            Expanded(
-              child: AppButton('Turn on', small: true, icon: Icons.notifications_outlined, onPressed: _yes),
+            AppButton('Turn on', small: true, onPressed: _yes),
+            Semantics(
+              button: true,
+              label: 'No thanks',
+              excludeSemantics: true,
+              child: IconButton(
+                onPressed: () => appDb.setSetting('reminder_asked', true),
+                icon: Icon(Icons.close, size: 20, color: c.textDim),
+                tooltip: 'No thanks',
+              ),
             ),
           ],
         ),
+        if (_note.isNotEmpty) T(_note, variant: TextVariant.small, color: c.danger),
       ],
     );
   }

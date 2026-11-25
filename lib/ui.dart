@@ -771,13 +771,71 @@ class Segmented<V> extends StatelessWidget {
                         onChanged(k);
                       },
                       child: Center(
-                        child: T(options[k]!, variant: TextVariant.label, dim: k != value, maxLines: 1),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: T(options[k]!, variant: TextVariant.label, dim: k != value, maxLines: 1),
+                          ),
+                        ),
                       ),
                     ),
                   ),
                 ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A quiet row of text tabs, underlined when chosen: for a second level of choice under a [Segmented], so the two
+/// never look alike.
+class TextTabs<V> extends StatelessWidget {
+  const TextTabs({super.key, required this.options, required this.value, required this.onChanged});
+
+  /// Value → label, in display order.
+  final Map<V, String> options;
+  final V value;
+  final ValueChanged<V> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: c.border, width: 0.5)),
+      ),
+      child: Row(
+        children: [
+          for (final MapEntry(key: k, value: label) in options.entries)
+            Expanded(
+              child: Semantics(
+                button: true,
+                selected: k == value,
+                child: InkWell(
+                  onTap: () {
+                    if (k == value) return;
+                    tick();
+                    onChanged(k);
+                  },
+                  child: Container(
+                    height: 42,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      border: Border(
+                        bottom: BorderSide(color: k == value ? c.accent : const Color(0x00000000), width: 2),
+                      ),
+                    ),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: T(label, variant: TextVariant.label, color: k == value ? c.accent : c.textDim),
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -818,6 +876,7 @@ class Field extends StatelessWidget {
     this.textInputAction,
     this.capitalization = TextCapitalization.sentences,
     this.autocorrect = true,
+    this.onClear,
   });
 
   final String? label;
@@ -832,8 +891,13 @@ class Field extends StatelessWidget {
   final TextCapitalization capitalization;
   final bool autocorrect;
 
+  /// Shows an × inside the field while it has text; for search boxes.
+  final VoidCallback? onClear;
+
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
+    final clear = onClear;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       spacing: Spacing.xs,
@@ -848,8 +912,16 @@ class Field extends StatelessWidget {
           keyboardType: keyboardType,
           textCapitalization: capitalization,
           autocorrect: autocorrect,
-          style: TextStyle(fontSize: 15, color: context.colors.text),
-          decoration: fieldDecoration(context, hint: hint, icon: icon),
+          style: TextStyle(fontSize: 15, color: c.text),
+          decoration: fieldDecoration(context, hint: hint, icon: icon).copyWith(
+            suffixIcon: clear == null || controller.text.isEmpty
+                ? null
+                : IconButton(
+                    tooltip: 'Clear search',
+                    icon: Icon(Icons.close, size: 20, color: c.textDim),
+                    onPressed: clear,
+                  ),
+          ),
         ),
       ],
     );

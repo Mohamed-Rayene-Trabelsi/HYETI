@@ -10,7 +10,7 @@ import 'package:personal_mobile_app/main.dart';
 import 'package:personal_mobile_app/watch_api.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'widget_test.dart' show field, openTab, settle, tapText;
+import 'widget_test.dart' show field, openTab, settle, tapText, tapTip;
 
 /// One anime as AniList returns it; finished, with no poster so nothing is downloaded.
 Map<String, Object?> anime(int id, {String? title}) => {
@@ -134,12 +134,12 @@ void main() {
     expect(seen.last['search'], 'death');
     expect(find.text('Death Note'), findsOneWidget);
 
-    await tapText(tester, 'Clear search');
+    await tapTip(tester, 'Clear search');
     expect(seen.last.containsKey('search'), isFalse);
     expect(find.text('Frieren'), findsOneWidget);
   });
 
-  testWidgets('movies and series sit together under Shows', (tester) async {
+  testWidgets('movies and series each have their own tab', (tester) async {
     final paths = <String>[];
     httpClient = MockClient((request) async {
       paths.add(request.url.path);
@@ -147,9 +147,9 @@ void main() {
     });
     await tester.runAsync(() => appDb.setSetting('tmdb_key', 'abc'));
     await start(tester);
-    expect(find.text('Movies'), findsNothing);
+    expect(find.text('Shows'), findsNothing, reason: 'no second row of tabs');
 
-    await tapText(tester, 'Shows');
+    await tapText(tester, 'Movies');
     expect(paths.last, '/3/trending/movie/week');
     await tapText(tester, 'Series');
     expect(paths.last, '/3/trending/tv/week');
@@ -164,12 +164,12 @@ void main() {
     // The first "Anime" is the tab; the saved title's card says "Anime" too.
     await tester.tap(find.text('Anime').hitTestable().first);
     await settle(tester);
-    await tapText(tester, 'Save');
+    await tapTip(tester, 'Save to my list');
 
     final rows = (await tester.runAsync(() => appDb.query('SELECT * FROM watch_items')))!;
     expect(rows.single['ext_id'], 'anilist:7');
     expect(rows.single['title'], 'Anime 7');
-    expect(find.text('Saved'), findsOneWidget);
+    expect(find.byTooltip('Remove from my list'), findsOneWidget);
   });
 
   test('updating removes duplicate titles already on the list', () async {
@@ -256,15 +256,15 @@ void main() {
     await tester.tap(find.text('Anime').hitTestable().first);
     await settle(tester);
 
-    await tapText(tester, 'Save');
+    await tapTip(tester, 'Save to my list');
     expect(await tester.runAsync(() => appDb.query('SELECT * FROM watch_items')), hasLength(1));
 
-    await tapText(tester, 'Saved');
+    await tapTip(tester, 'Remove from my list');
     expect(await tester.runAsync(() => appDb.query('SELECT * FROM watch_items')), isEmpty);
-    expect(find.text('Save'), findsOneWidget);
+    expect(find.byTooltip('Save to my list'), findsOneWidget);
 
     await tapText(tester, 'Undo');
-    expect(find.text('Saved'), findsOneWidget);
+    expect(find.byTooltip('Remove from my list'), findsOneWidget);
 
     // Let the message's own timer run out.
     await tester.pump(const Duration(seconds: 5));
@@ -283,9 +283,9 @@ void main() {
     expect(find.text('Dandadan'), findsOneWidget);
 
     // Saved here, it stays in view, marked saved, instead of vanishing.
-    await tapText(tester, 'Save');
+    await tapTip(tester, 'Save to my list');
     expect(find.text('Dandadan'), findsOneWidget);
-    expect(find.text('Saved'), findsOneWidget);
+    expect(find.byTooltip('Remove from my list'), findsOneWidget);
 
     // Looked up by name, a saved title still shows.
     await tester.enterText(field(0), 'frieren');
